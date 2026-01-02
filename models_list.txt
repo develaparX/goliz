@@ -1,0 +1,163 @@
+Listing available models...
+Model: models/embedding-gecko-001
+  SupportedActions: [embedText countTextTokens]
+---
+Model: models/gemini-2.5-flash
+  SupportedActions: [generateContent countTokens createCachedContent batchGenerateContent]
+---
+Model: models/gemini-2.5-pro
+  SupportedActions: [generateContent countTokens createCachedContent batchGenerateContent]
+---
+Model: models/gemini-2.0-flash-exp
+  SupportedActions: [generateContent countTokens bidiGenerateContent]
+---
+Model: models/gemini-2.0-flash
+  SupportedActions: [generateContent countTokens createCachedContent batchGenerateContent]
+---
+Model: models/gemini-2.0-flash-001
+  SupportedActions: [generateContent countTokens createCachedContent batchGenerateContent]
+---
+Model: models/gemini-2.0-flash-exp-image-generation
+  SupportedActions: [generateContent countTokens bidiGenerateContent]
+---
+Model: models/gemini-2.0-flash-lite-001
+  SupportedActions: [generateContent countTokens createCachedContent batchGenerateContent]
+---
+Model: models/gemini-2.0-flash-lite
+  SupportedActions: [generateContent countTokens createCachedContent batchGenerateContent]
+---
+Model: models/gemini-2.0-flash-lite-preview-02-05
+  SupportedActions: [generateContent countTokens createCachedContent batchGenerateContent]
+---
+Model: models/gemini-2.0-flash-lite-preview
+  SupportedActions: [generateContent countTokens createCachedContent batchGenerateContent]
+---
+Model: models/gemini-exp-1206
+  SupportedActions: [generateContent countTokens createCachedContent batchGenerateContent]
+---
+Model: models/gemini-2.5-flash-preview-tts
+  SupportedActions: [countTokens generateContent]
+---
+Model: models/gemini-2.5-pro-preview-tts
+  SupportedActions: [countTokens generateContent batchGenerateContent]
+---
+Model: models/gemma-3-1b-it
+  SupportedActions: [generateContent countTokens]
+---
+Model: models/gemma-3-4b-it
+  SupportedActions: [generateContent countTokens]
+---
+Model: models/gemma-3-12b-it
+  SupportedActions: [generateContent countTokens]
+---
+Model: models/gemma-3-27b-it
+  SupportedActions: [generateContent countTokens]
+---
+Model: models/gemma-3n-e4b-it
+  SupportedActions: [generateContent countTokens]
+---
+Model: models/gemma-3n-e2b-it
+  SupportedActions: [generateContent countTokens]
+---
+Model: models/gemini-flash-latest
+  SupportedActions: [generateContent countTokens createCachedContent batchGenerateContent]
+---
+Model: models/gemini-flash-lite-latest
+  SupportedActions: [generateContent countTokens createCachedContent batchGenerateContent]
+---
+Model: models/gemini-pro-latest
+  SupportedActions: [generateContent countTokens createCachedContent batchGenerateContent]
+---
+Model: models/gemini-2.5-flash-lite
+  SupportedActions: [generateContent countTokens createCachedContent batchGenerateContent]
+---
+Model: models/gemini-2.5-flash-image-preview
+  SupportedActions: [generateContent countTokens batchGenerateContent]
+---
+Model: models/gemini-2.5-flash-image
+  SupportedActions: [generateContent countTokens batchGenerateContent]
+---
+Model: models/gemini-2.5-flash-preview-09-2025
+  SupportedActions: [generateContent countTokens createCachedContent batchGenerateContent]
+---
+Model: models/gemini-2.5-flash-lite-preview-09-2025
+  SupportedActions: [generateContent countTokens createCachedContent batchGenerateContent]
+---
+Model: models/gemini-3-pro-preview
+  SupportedActions: [generateContent countTokens createCachedContent batchGenerateContent]
+---
+Model: models/gemini-3-flash-preview
+  SupportedActions: [generateContent countTokens createCachedContent batchGenerateContent]
+---
+Model: models/gemini-3-pro-image-preview
+  SupportedActions: [generateContent countTokens batchGenerateContent]
+---
+Model: models/nano-banana-pro-preview
+  SupportedActions: [generateContent countTokens batchGenerateContent]
+---
+Model: models/gemini-robotics-er-1.5-preview
+  SupportedActions: [generateContent countTokens]
+---
+Model: models/gemini-2.5-computer-use-preview-10-2025
+  SupportedActions: [generateContent countTokens]
+---
+Model: models/deep-research-pro-preview-12-2025
+  SupportedActions: [generateContent countTokens]
+---
+Model: models/embedding-001
+  SupportedActions: [embedContent]
+---
+Model: models/text-embedding-004
+  SupportedActions: [embedContent]
+---
+Model: models/gemini-embedding-exp-03-07
+  SupportedActions: [embedContent countTextTokens countTokens]
+---
+Model: models/gemini-embedding-exp
+  SupportedActions: [embedContent countTextTokens countTokens]
+---
+Model: models/gemini-embedding-001
+  SupportedActions: [embedContent countTextTokens countTokens asyncBatchEmbedContent]
+---
+Model: models/aqa
+  SupportedActions: [generateAnswer]
+---
+Model: models/imagen-4.0-generate-preview-06-06
+  SupportedActions: [predict]
+---
+Model: models/imagen-4.0-ultra-generate-preview-06-06
+  SupportedActions: [predict]
+---
+Model: models/imagen-4.0-generate-001
+  SupportedActions: [predict]
+---
+Model: models/imagen-4.0-ultra-generate-001
+  SupportedActions: [predict]
+---
+Model: models/imagen-4.0-fast-generate-001
+  SupportedActions: [predict]
+---
+Model: models/veo-2.0-generate-001
+  SupportedActions: [predictLongRunning]
+---
+Model: models/veo-3.0-generate-001
+  SupportedActions: [predictLongRunning]
+---
+Model: models/veo-3.0-fast-generate-001
+  SupportedActions: [predictLongRunning]
+---
+Model: models/veo-3.1-generate-preview
+  SupportedActions: [predictLongRunning]
+---
+Model: models/veo-3.1-fast-generate-preview
+  SupportedActions: [predictLongRunning]
+---
+Model: models/gemini-2.5-flash-native-audio-latest
+  SupportedActions: [countTokens bidiGenerateContent]
+---
+Model: models/gemini-2.5-flash-native-audio-preview-09-2025
+  SupportedActions: [countTokens bidiGenerateContent]
+---
+Model: models/gemini-2.5-flash-native-audio-preview-12-2025
+  SupportedActions: [countTokens bidiGenerateContent]
+---
