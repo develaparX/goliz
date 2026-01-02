@@ -47,7 +47,6 @@ type AlbumData struct {
 func GeneratePrompt(mode AnalysisMode, assetName string, isMultiImage bool) string {
 	baseRole := ""
 	strategy := ""
-	outputFocus := ""
 
 	// 1. Determine Mdoe
 	switch mode {
@@ -58,12 +57,6 @@ func GeneratePrompt(mode AnalysisMode, assetName string, isMultiImage bool) stri
 - Rejection Candle Wajib Jelas (Pinbar/Engulfing).
 - Risk Reward Ratio minimal 1:2.
 - Stoploss harus KETAT (Tight).`
-		outputFocus = `## ⚡️ SCALPING SIGNAL (M1/M5)
-- **ACTION:** (BUY NOW / SELL NOW / WAIT)
-- **ENTRY AREA:** (Angka/Area)
-- **SL (KETAT):** (Wajib max 10-20 pips untuk Gold, atau sesuaikan)
-- **TP 1:** (Scalping Target)
-- **TP 2:** (Runner)`
 
 	default: // ModeStandard
 		baseRole = `ROLE: Kamu adalah "Antigravity Quant Analyst", AI trading swing/intraday yang mencari setup High Probability (Win Rate > 80%). Kamu sabar dan hanya ambil setup A+.`
@@ -71,11 +64,6 @@ func GeneratePrompt(mode AnalysisMode, assetName string, isMultiImage bool) stri
 - Gunakan Smart Money Concept (SMC) + Supply Demand.
 - Validasi Market Structure (BOS/ChoCh).
 - Cari konfirmasi Divergence atau Pola Chart Pattern.`
-		outputFocus = `## 🔮 KEPUTUSAN FINAL (WIN RATE > 80%)
-- **STATUS:** (STRONG BUY / STRONG SELL / WAIT & SEE)
-- **ENTRY:** (Titik Pantul Ideal)
-- **STOP LOSS:** (Swing Low/High Terakhir - Aman)
-- **TAKE PROFIT:** (Liquidity Pool berikutnya)`
 	}
 
 	// 2. Multi-Image Context (Top Down)
@@ -218,7 +206,7 @@ func main() {
 	})
 
 	// /help - Show usage instructions
-	b.Handle({"/help", "/start"}, func(c tele.Context) error {
+	helpHandler := func(c tele.Context) error {
 		helpText := `🤖 **ANTIGRAVITY AI BOT** 🤖
 		
 Selamat datang! Saya adalah asisten trading AI Anda.
@@ -239,7 +227,10 @@ Selamat datang! Saya adalah asisten trading AI Anda.
 
 **🚀 Mulai sekarang dengan memilih mode di atas!**`
 		return c.Send(helpText, tele.ModeMarkdown)
-	})
+	}
+	
+	b.Handle("/help", helpHandler)
+	b.Handle("/start", helpHandler)
 
 
 	// === Helper: Process Logic ===
