@@ -35,11 +35,13 @@ var (
 )
 
 type AlbumData struct {
+	Mu         sync.Mutex
 	CapturedAt time.Time
 	Photos     [][]byte
 	Caption    string
 	UserID     int64
 	Timer      *time.Timer
+	Generation int
 }
 
 // === Prompts ===
@@ -175,21 +177,31 @@ func main() {
 	}
 
 	// === Commands ===
+	var handlePhoto func(c tele.Context) error
 	
 	// /analyst - Set standard mode
 	b.Handle("/analyst", func(c tele.Context) error {
 		userMode.Store(c.Sender().ID, ModeStandard)
+		if c.Message().Photo != nil {
+			return handlePhoto(c)
+		}
 		return c.Send("🛸 <b>Mode: ANALYST STANDARD ACTIVATED</b>\n\nSilakan kirimkan chart Anda (Single atau Album untuk Top Down Analysis).\nJangan lupa tulis nama aset di caption!", tele.ModeHTML)
 	})
 
 	// /analyst-scalping - Set scalping mode
 	b.Handle("/scalping", func(c tele.Context) error { // shortened for ease
 		userMode.Store(c.Sender().ID, ModeScalping)
+		if c.Message().Photo != nil {
+			return handlePhoto(c)
+		}
 		return c.Send("⚡️ <b>Mode: SCALPER ELITE ACTIVATED</b>\n\nKirim chart Timeframe Kecil (M1/M5). Sinyal akan fokus pada entry cepat & tight SL.", tele.ModeHTML)
 	})
 	// Handle full command name too just in case
 	b.Handle("/analyst-scalping", func(c tele.Context) error {
 		userMode.Store(c.Sender().ID, ModeScalping)
+		if c.Message().Photo != nil {
+			return handlePhoto(c)
+		}
 		return c.Send("⚡️ <b>Mode: SCALPER ELITE ACTIVATED</b>\n\nKirim chart Timeframe Kecil (M1/M5). Sinyal akan fokus pada entry cepat & tight SL.", tele.ModeHTML)
 	})
 
@@ -231,6 +243,17 @@ Selamat datang! Saya adalah asisten trading AI Anda.
 
 		// 2. Default Caption Check
 		targetAsset := caption
+		
+		// Strip command if present (e.g. "/scalping XAUUSD" -> "XAUUSD")
+		if strings.HasPrefix(targetAsset, "/") {
+			parts := strings.SplitN(targetAsset, " ", 2)
+			if len(parts) > 1 {
+				targetAsset = parts[1]
+			} else {
+				targetAsset = "" // Command only, no asset name
+			}
+		}
+
 		if targetAsset == "" {
 			targetAsset = "Unknown Asset"
 			// Try to infer from "analyst XAUUSD" pattern if user typed command in caption previously?
@@ -350,7 +373,7 @@ Selamat datang! Saya adalah asisten trading AI Anda.
 
 
 	// === Photo Handler (with Album Support) ===
-	b.Handle(tele.OnPhoto, func(c tele.Context) error {
+	handlePhoto = func(c tele.Context) error {
 		photo := c.Message().Photo
 		caption := c.Message().Caption
 		
@@ -398,8 +421,13 @@ Selamat datang! Saya adalah asisten trading AI Anda.
 		})
 		data := actualData.(*AlbumData)
 
+		data.Mu.Lock()
+		defer data.Mu.Unlock()
+
 		// Append photo
 		data.Photos = append(data.Photos, imgData)
+		data.Generation++
+		currentGen := data.Generation
 		
 		// Take the caption from the first message that has it
 		if caption != "" && data.Caption == "" {
@@ -411,25 +439,39 @@ Selamat datang! Saya adalah asisten trading AI Anda.
 			data.Timer.Stop()
 		}
 		
-		// Wait 2 seconds for other photos
-		data.Timer = time.AfterFunc(2*time.Second, func() {
+		// Wait 4 seconds for other photos (handling slow internet)
+		data.Timer = time.AfterFunc(4*time.Second, func() {
+			data.Mu.Lock()
+			
+			// CONFIRMATION: Check if this timer is the latest generation
+			if data.Generation != currentGen {
+				data.Mu.Unlock()
+				return
+			}
+			
 			// Clean up map
 			albumBuffer.Delete(mediaGroupID)
 			
+			// Capture data safely
+			finalCaption := data.Caption
+			finalPhotos := data.Photos
+			
+			data.Mu.Unlock()
+			
 			// Validate Caption
-			if data.Caption == "" {
+			if finalCaption == "" {
 				b.Send(c.Chat(), "⚠️ Album received but NO CAPTION found. Processing as 'General Market Analysis'...")
-				data.Caption = "Market Analysis"
+				finalCaption = "Market Analysis"
 			}
 			
 			// Process
-			// Sort/Order? Telegram usually delivers in order, but not guaranteed.
-			// Vision model is generally robust enough to figure out HTF vs LTF contextually or we prompt it.
-			processAnalysis(data.UserID, data.Caption, data.Photos, c.Chat())
+			processAnalysis(userID, finalCaption, finalPhotos, c.Chat())
 		})
 
 		return nil
-	})
+	}
+	
+	b.Handle(tele.OnPhoto, handlePhoto)
 
 	fmt.Println("🚀 Antigravity Bot (Multi-Mode) Started...")
 	b.Start()
