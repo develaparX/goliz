@@ -246,23 +246,35 @@ Selamat datang! Saya adalah asisten trading AI Anda.
    • /analyst - <b>Mode Standard</b> (Swing/Intraday)
    • /scalping - <b>Mode Scalping</b> (M1/M5)
    
-<b>2. Mode Auto (Binance Chart):</b>
+<b>2. Mode Auto CRYPTO (Binance):</b>
    • /autosc BTCUSDT - <b>Auto Scalping</b> (5m,15m,1H,4H,1D)
    • /autosw BTCUSDT - <b>Auto Swing</b> (5m,15m,1H,4H,1D,1W)
    • /autoint BTCUSDT - <b>Auto Intraday</b> (5m,15m,1H,4H,1D,1W)
 
-<b>3. Kirim Chart Manual:</b>
+<b>3. Mode Auto FOREX (Yahoo Finance):</b>
+   • /fxsc EURUSD - <b>Forex Scalping</b> (5m,15m,1H,1D)
+   • /fxsw GBPJPY - <b>Forex Swing</b> (15m,1H,1D,1W)
+   • /fxint XAUUSD - <b>Forex Intraday</b> (5m,15m,1H,1D)
+
+<b>4. Kirim Chart Manual:</b>
    • Kirim <b>GAMBAR</b> chart Anda
    • <b>WAJIB</b> tulis nama aset di caption
    • <b>Top-Down Analysis</b>: Kirim beberapa gambar sekaligus (Album)
 
-<b>💡 Contoh Auto Mode:</b>
-<code>/autosc ETHUSDT</code> - Scalping analysis untuk Ethereum
-<code>/autosw BTCUSDT</code> - Swing analysis untuk Bitcoin
+<b>💡 Contoh:</b>
+<code>/autosc ETHUSDT</code> - Crypto Scalping (Binance)
+<code>/fxsc EURUSD</code> - Forex Scalping (Yahoo Finance)
+<code>/fxsw XAUUSD</code> - Gold Swing Trading
+
+<b>📊 Forex Pairs:</b>
+Major: EURUSD, GBPUSD, USDJPY, USDCHF
+Cross: EURJPY, GBPJPY, EURGBP
+Commodities: XAUUSD (Gold), XAGUSD (Silver)
 
 <b>🚀 Mulai sekarang!</b>`
 		return c.Send(helpText, tele.ModeHTML)
 	}
+
 	
 	b.Handle("/help", helpHandler)
 	b.Handle("/start", helpHandler)
@@ -436,7 +448,7 @@ Selamat datang! Saya adalah asisten trading AI Anda.
 📊 <b>Symbol:</b> %s
 ⚙️ <b>Mode:</b> %s
 🕐 <b>Timeframes:</b> %s
-📈 <b>Candles:</b> 200 per timeframe
+📈 <b>Candles:</b> 500 per timeframe
 
 <i>Mengambil data dari Binance...</i>`, symbol, modeName, tfList), tele.ModeHTML)
 		
@@ -450,9 +462,9 @@ Selamat datang! Saya adalah asisten trading AI Anda.
 		go func() {
 			log.Printf("🔄 [AUTO-DATA] Starting goroutine for %s", symbol)
 			
-			// Fetch multi-timeframe data (200 candles for context)
+			// Fetch multi-timeframe data (500 candles for better context)
 			log.Printf("📈 [AUTO-DATA] Fetching candlestick data...")
-			summaries, err := FetchMultiTimeframeData(symbol, tradingMode, 200)
+			summaries, err := FetchMultiTimeframeData(symbol, tradingMode, 500)
 			if err != nil {
 				log.Printf("❌ [AUTO-DATA] Error fetching data: %v", err)
 				if statusMsg != nil {
@@ -617,6 +629,253 @@ Selamat datang! Saya adalah asisten trading AI Anda.
 		return processAutoChart(c, TradingModeIntraday, ModeAutoIntraday)
 	})
 
+	// === FOREX Auto Trading Command Handlers ===
+	
+	// Helper function to process auto forex chart analysis (DATA-BASED - Yahoo Finance)
+	processAutoForexChart := func(c tele.Context, tradingMode TradingMode, analysisMode AnalysisMode) error {
+		log.Printf("📥 [FOREX-AUTO] Command received: mode=%s", tradingMode)
+		
+		// Parse symbol from command arguments
+		args := c.Args()
+		if len(args) == 0 {
+			log.Printf("⚠️ [FOREX-AUTO] No symbol provided")
+			return c.Send(`⚠️ <b>Mohon masukkan simbol forex!</b>
+
+<b>Contoh:</b>
+• <code>/fxsc EURUSD</code> - Scalping EUR/USD
+• <code>/fxsw GBPJPY</code> - Swing GBP/JPY
+• <code>/fxint XAUUSD</code> - Intraday Gold
+
+<b>Major Pairs:</b> EURUSD, GBPUSD, USDJPY, USDCHF, AUDUSD, USDCAD, NZDUSD
+<b>Cross Pairs:</b> EURGBP, EURJPY, GBPJPY, EURAUD, dll
+<b>Commodities:</b> XAUUSD (Gold), XAGUSD (Silver)`, tele.ModeHTML)
+		}
+		
+		// Normalize forex symbol
+		yahooSymbol, displayName, err := NormalizeForexSymbol(args[0])
+		if err != nil {
+			log.Printf("⚠️ [FOREX-AUTO] Invalid symbol: %v", err)
+			return c.Send(fmt.Sprintf("❌ <b>Symbol tidak valid:</b> %s\n\n<i>Gunakan format seperti: EURUSD, EUR/USD, GBPJPY</i>", err.Error()), tele.ModeHTML)
+		}
+		
+		userID := c.Sender().ID
+		chat := c.Chat()
+		
+		log.Printf("📊 [FOREX-AUTO] Processing symbol: %s (%s) for user: %d", displayName, yahooSymbol, userID)
+		
+		// Store mode
+		userMode.Store(userID, analysisMode)
+		
+		// Send initial status
+		modeName := getModeName(analysisMode)
+		timeframes := GetForexTimeframesForMode(tradingMode)
+		tfList := ""
+		for i, tf := range timeframes {
+			if i > 0 {
+				tfList += ", "
+			}
+			tfList += string(tf)
+		}
+		
+		log.Printf("⏰ [FOREX-AUTO] Timeframes to fetch: %s", tfList)
+		
+		statusMsg, sendErr := b.Send(chat, fmt.Sprintf(`⏳ <b>FETCHING FOREX DATA...</b>
+
+💱 <b>Pair:</b> %s
+📊 <b>Symbol:</b> %s
+⚙️ <b>Mode:</b> %s
+🕐 <b>Timeframes:</b> %s
+📈 <b>Market:</b> FOREX (Yahoo Finance)
+
+<i>Mengambil data dari Yahoo Finance...</i>`, displayName, yahooSymbol, modeName, tfList), tele.ModeHTML)
+		
+		if sendErr != nil {
+			log.Printf("❌ [FOREX-AUTO] Failed to send status message: %v", sendErr)
+		} else {
+			log.Printf("✅ [FOREX-AUTO] Status message sent")
+		}
+		
+		// Run in goroutine to not block
+		go func() {
+			log.Printf("🔄 [FOREX-AUTO] Starting goroutine for %s", yahooSymbol)
+			
+			// Fetch multi-timeframe data (200 candles for context)
+			log.Printf("📈 [FOREX-AUTO] Fetching candlestick data...")
+			summaries, err := FetchForexMultiTimeframeData(yahooSymbol, tradingMode, 500)
+			if err != nil {
+				log.Printf("❌ [FOREX-AUTO] Error fetching data: %v", err)
+				if statusMsg != nil {
+					b.Delete(statusMsg)
+				}
+				b.Send(chat, fmt.Sprintf(`❌ <b>Error fetching forex data:</b> %s
+
+<i>Pastikan symbol benar dan koneksi internet stabil.
+Contoh symbol: EURUSD, GBPJPY, XAUUSD</i>`, err.Error()), tele.ModeHTML)
+				return
+			}
+			log.Printf("✅ [FOREX-AUTO] Fetched data for %d timeframes", len(summaries))
+			
+			// Log summary for each timeframe
+			for _, s := range summaries {
+				log.Printf("📋 [FOREX-AUTO] %s: Trend=%s, RSI=%.1f, Change=%.2f%%", 
+					GetTimeframeName(s.Interval), s.Trend, s.RSI, s.PriceChange)
+			}
+			
+			// Update status
+			if statusMsg != nil {
+				b.Edit(statusMsg, fmt.Sprintf(`✅ <b>DATA FETCHED!</b>
+
+💱 <b>Pair:</b> %s
+📈 <b>Timeframes:</b> %d
+🤖 <b>Status:</b> Analyzing with AI...`, displayName, len(summaries)), tele.ModeHTML)
+			}
+			
+			// Format data for AI
+			dataContext := FormatForexDataForAI(yahooSymbol, displayName, summaries, tradingMode)
+			log.Printf("📝 [FOREX-AUTO] Data formatted for AI (%d bytes)", len(dataContext))
+			
+			// Generate specialized forex prompt
+			prompt := GenerateForexAnalysisPrompt(tradingMode, yahooSymbol, displayName, dataContext)
+			
+			// Build Gemini request (text only, no images!)
+			parts := []*genai.Part{genai.NewPartFromText(prompt)}
+			contents := []*genai.Content{{Parts: parts, Role: "user"}}
+			
+			// Tools (Google Search for sentiment and economic calendar)
+			tools := []*genai.Tool{{GoogleSearch: &genai.GoogleSearch{}}}
+			config := &genai.GenerateContentConfig{Tools: tools}
+			
+			// Call Gemini
+			log.Printf("🤖 [FOREX-AUTO] Calling Gemini AI...")
+			resp, err := client.Models.GenerateContent(ctx, "gemini-flash-latest", contents, config)
+			
+			// Delete status message
+			if statusMsg != nil {
+				b.Delete(statusMsg)
+			}
+			
+			if err != nil {
+				log.Printf("❌ [FOREX-AUTO] Gemini API Error: %v", err)
+				b.Send(chat, "⚠️ <b>Error analyzing</b> (Quota or API Issue). Try again later.", tele.ModeHTML)
+				return
+			}
+			
+			if resp == nil || len(resp.Candidates) == 0 {
+				log.Printf("❌ [FOREX-AUTO] Empty response from Gemini")
+				b.Send(chat, "⚠️ No response from AI.", tele.ModeHTML)
+				return
+			}
+			
+			// Extract response text
+			responseText := ""
+			for _, part := range resp.Candidates[0].Content.Parts {
+				responseText += part.Text
+			}
+			
+			// Clean HTML
+			responseText = cleanHTML(responseText)
+			log.Printf("✅ [FOREX-AUTO] Analysis received (%d chars)", len(responseText))
+			
+			// Parse levels from response
+			levels := parseLevelsFromResponse(responseText)
+			if levels != nil {
+				log.Printf("📊 [FOREX-AUTO] Parsed levels: Entry=%.5f, SL=%.5f, TP1=%.5f, TP2=%.5f, TP3=%.5f",
+					levels.Entry, levels.SL, levels.TP1, levels.TP2, levels.TP3)
+				
+				// Get best timeframe for chart (1H for scalping/intraday, 1D for swing)
+				chartInterval := YahooInterval1h
+				binanceChartInterval := Interval1h
+				if tradingMode == TradingModeSwing {
+					chartInterval = YahooInterval1d
+					binanceChartInterval = Interval1d
+				}
+				
+				// Fetch candles for chart
+				chartCandles, err := FetchYahooCandlesticks(yahooSymbol, chartInterval, 100)
+				if err == nil && len(chartCandles) > 0 {
+					// Generate chart with levels
+					chartImg, err := GenerateChartWithLevels(chartCandles, displayName, binanceChartInterval, levels)
+					if err == nil {
+						log.Printf("📊 [FOREX-AUTO] Generated entry chart (%d bytes)", len(chartImg))
+						
+						// Send chart first
+						photo := &tele.Photo{
+							File:    tele.FromReader(bytes.NewReader(chartImg)),
+							Caption: fmt.Sprintf("📊 %s Entry Chart\n🔵 Entry: %.5f\n🔴 SL: %.5f\n🟢 TP1: %.5f", displayName, levels.Entry, levels.SL, levels.TP1),
+						}
+						_, err = b.Send(chat, photo)
+						if err != nil {
+							log.Printf("⚠️ [FOREX-AUTO] Failed to send chart: %v", err)
+						} else {
+							log.Printf("✅ [FOREX-AUTO] Entry chart sent!")
+						}
+					} else {
+						log.Printf("⚠️ [FOREX-AUTO] Failed to generate chart: %v", err)
+					}
+				}
+			} else {
+				log.Printf("⚠️ [FOREX-AUTO] Could not parse levels from response")
+			}
+			
+			// Send analysis result with inline buttons
+			msg, err := b.Send(chat, responseText, &tele.SendOptions{
+				ParseMode: tele.ModeHTML,
+				ReplyMarkup: &tele.ReplyMarkup{
+					InlineKeyboard: [][]tele.InlineButton{
+						{
+							{
+								Text: "📈 TradingView",
+								URL:  fmt.Sprintf("https://www.tradingview.com/chart/?symbol=FX:%s", strings.ReplaceAll(displayName, "/", "")),
+							},
+							{
+								Text: "📰 Forex News",
+								URL:  fmt.Sprintf("https://www.google.com/search?q=%s+forex+news", strings.ReplaceAll(displayName, "/", "")),
+							},
+						},
+						{
+							{
+								Text: "📅 Economic Calendar",
+								URL:  "https://www.forexfactory.com/calendar",
+							},
+						},
+						{
+							{
+								Text:   "⚠️ Disclaimer",
+								Unique: "disclaimer_btn",
+							},
+						},
+					},
+				},
+			})
+			
+			if err != nil {
+				log.Printf("❌ [FOREX-AUTO] Failed to send analysis: %v", err)
+			} else {
+				log.Printf("✅ [FOREX-AUTO] Analysis sent (MsgID: %d)", msg.ID)
+			}
+		}()
+		
+		log.Printf("⏳ [FOREX-AUTO] Goroutine started, returning immediately")
+		return nil
+	}
+	
+	// /fxsc - Forex Scalping
+	b.Handle("/fxsc", func(c tele.Context) error {
+		log.Printf("🔥 [HANDLER] /fxsc triggered by user %d", c.Sender().ID)
+		return processAutoForexChart(c, TradingModeScalping, ModeAutoScalping)
+	})
+	
+	// /fxsw - Forex Swing
+	b.Handle("/fxsw", func(c tele.Context) error {
+		log.Printf("🔥 [HANDLER] /fxsw triggered by user %d", c.Sender().ID)
+		return processAutoForexChart(c, TradingModeSwing, ModeAutoSwing)
+	})
+	
+	// /fxint - Forex Intraday
+	b.Handle("/fxint", func(c tele.Context) error {
+		log.Printf("🔥 [HANDLER] /fxint triggered by user %d", c.Sender().ID)
+		return processAutoForexChart(c, TradingModeIntraday, ModeAutoIntraday)
+	})
 
 	// === Helper: Interactive Callbacks ===
 	b.Handle(&tele.InlineButton{Unique: "disclaimer_btn"}, func(c tele.Context) error {
@@ -729,7 +988,7 @@ Selamat datang! Saya adalah asisten trading AI Anda.
 	
 	b.Handle(tele.OnPhoto, handlePhoto)
 
-	log.Println("📋 [STARTUP] Registered handlers: /analyst, /scalping, /autosc, /autosw, /autoint, /help, /start")
+	log.Println("📋 [STARTUP] Registered handlers: /analyst, /scalping, /autosc, /autosw, /autoint, /fxsc, /fxsw, /fxint, /help, /start")
 	fmt.Println("🚀 Antigravity Bot (Multi-Mode) Started...")
 	b.Start()
 }
