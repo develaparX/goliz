@@ -210,98 +210,119 @@ func FormatDataForAI(symbol string, summaries []CandleDataSummary, mode TradingM
 	return sb.String()
 }
 
-// GenerateDataAnalysisPrompt creates a prompt for data-based analysis
+// GenerateDataAnalysisPrompt creates a prompt for data-based analysis (matching manual flow)
 func GenerateDataAnalysisPrompt(mode TradingMode, symbol string, dataContext string) string {
-	modeDescription := ""
+	baseRole := ""
+	strategy := ""
+
 	switch mode {
 	case TradingModeScalping:
-		modeDescription = `MODE: SCALPING (Entry cepat, SL ketat, target pendek)
-- Fokus pada momentum dan liquidity di timeframe kecil
-- Cari rejection candle, engulfing pattern, dan break of structure
-- Risk:Reward minimal 1:2`
+		baseRole = `ROLE: Kamu adalah "Antigravity Scalper", trader agresif spesialis timeframe kecil (M5, M15). Kamu mencari momentum cepat, liquidity grabs, dan rejection tajam.`
+		strategy = `METODE SCALPING (FAST EXECUTION):
+- Fokus cari: Liquidity Sweep (Pengambilan Stoploss retail) lalu Reversal.
+- Rejection Candle Wajib Jelas (Pinbar/Engulfing).
+- Risk Reward Ratio minimal 1:2.
+- Stoploss harus KETAT (Tight).`
 	case TradingModeSwing:
-		modeDescription = `MODE: SWING TRADING (Hold beberapa hari sampai minggu)
-- Fokus pada trend besar di Weekly/Daily
-- Entry di pullback ke area demand/supply
-- Risk:Reward minimal 1:3`
+		baseRole = `ROLE: Kamu adalah "Antigravity Swing Master", trader sabar yang menunggu setup sempurna di timeframe besar (1D, 1W).`
+		strategy = `METODE SWING TRADING:
+- Fokus pada trend besar dan hold beberapa hari sampai minggu.
+- Entry di pullback ke area demand/supply yang kuat.
+- Risk Reward Ratio minimal 1:3.`
 	case TradingModeIntraday:
-		modeDescription = `MODE: INTRADAY (Trading dalam 1 hari)
-- Identifikasi trend dari 4H/1D
-- Entry di 15m/1H dengan konfirmasi
-- Close posisi sebelum akhir hari`
+		baseRole = `ROLE: Kamu adalah "Antigravity Quant Analyst", AI trading intraday yang mencari setup High Probability (Win Rate > 80%).`
+		strategy = `METODE INTRADAY:
+- Gunakan Smart Money Concept (SMC) + Supply Demand.
+- Validasi Market Structure (BOS/ChoCh).
+- Close semua posisi sebelum akhir hari.`
+	default:
+		baseRole = `ROLE: Kamu adalah "Antigravity Quant Analyst", AI trading profesional dengan keahlian SMC dan Multi-Timeframe Analysis.`
+		strategy = `METODE STANDARD:
+- Gunakan Smart Money Concept (SMC) + Supply Demand.
+- Validasi Market Structure (BOS/ChoCh).
+- Cari konfirmasi Divergence atau Pola Chart Pattern.`
 	}
 
-	return fmt.Sprintf(`Kamu adalah "Antigravity Quant Analyst", AI trading profesional dengan keahlian Smart Money Concept (SMC), Supply Demand, dan Multi-Timeframe Analysis.
+	return fmt.Sprintf(`%s
+
+DATA MARKET REAL-TIME (Binance):
+%s
 
 %s
 
-DATA MARKET (REAL-TIME dari Binance):
-%s
+TUGAS ANALISIS TOP-DOWN:
 
-TUGAS ANALISIS:
+LANGKAH 1: EXTERNAL DATA VALIDATION
+- Cari sentimen pasar %s hari ini menggunakan Google Search.
 
-1. TOP-DOWN ANALYSIS
-   - Analisa dari timeframe TERBESAR ke TERKECIL
-   - Identifikasi: Trend utama, Key Levels (Support/Resistance), Market Structure (HH/HL atau LH/LL)
+LANGKAH 2: MULTI-TIMEFRAME ANALYSIS
+- Analisa dari timeframe TERBESAR ke TERKECIL
+- Identifikasi: Trend utama di HTF (Higher Time Frame)
+- Cari entry presisi di LTF (Lower Time Frame)
+- Pastikan confluence antara HTF dan LTF
 
-2. SMART MONEY ANALYSIS
-   - Order Blocks (OB)
-   - Fair Value Gaps (FVG) / Imbalance
-   - Break of Structure (BOS) / Change of Character (ChoCh)
-   - Liquidity zones (Equal highs/lows)
+LANGKAH 3: SMART MONEY ANALYSIS
+- Order Blocks (OB) - zona akumulasi institusional
+- Fair Value Gaps (FVG) / Imbalance
+- Break of Structure (BOS) / Change of Character (ChoCh)
+- Liquidity zones (Equal highs/lows yang akan di-sweep)
 
-3. ENTRY ANALYSIS
-   - Tentukan Entry Point yang optimal
-   - Stoploss (behind structure / invalidation level)
-   - Take Profit 1, 2, 3 (berdasarkan structure targets)
-   - Risk:Reward Ratio
-
-4. PROBABILITY & CONFIDENCE
-   - Berikan confidence level (0-100%%)
-   - Sebutkan faktor pendukung dan berlawanan
+LANGKAH 4: ENTRY SETUP
+- Entry Point yang optimal (harga spesifik)
+- Stoploss (behind structure / invalidation level)
+- Take Profit 1, 2, 3 (berdasarkan structure targets)
+- Risk:Reward Ratio
 
 --------------------------------------------------------
-OUTPUT FORMAT (STRICT HTML untuk Telegram):
+CRITICAL RULE:
+1. GUNAKAN FORMAT HTML (Telegram Compatible).
+2. Escape karakter < > & di dalam teks biasa.
+3. GUNAKAN Code Block "diff" untuk warna merah/hijau.
+4. BERIKAN HARGA SPESIFIK untuk Entry, SL, TP (bukan range).
+--------------------------------------------------------
+
+OUTPUT FORMAT (STRICT HTML):
 
 <b>🛸 ANTIGRAVITY PRIME</b>
 <code>%s</code> • <code>%s</code>
 
+<b>⚙️ STRATEGY MODE: %s</b>
+
 <blockquote>💡 <i>"[Quote insight singkat tentang setup ini]"</i></blockquote>
 
 <b>📊 MARKET STRUCTURE</b>
-Trend: [BULLISH/BEARISH/SIDEWAYS]
-Key Support: [level]
-Key Resistance: [level]
-Market Phase: [Accumulation/Distribution/Markup/Markdown]
+HTF Trend (1D/4H): <b>[BULLISH/BEARISH]</b>
+LTF Trend (1H/15m): <b>[BULLISH/BEARISH]</b>
+Key Support: [level harga]
+Key Resistance: [level harga]
+Volatility: [Low/Med/High]
 
-<b>💎 SIGNAL</b>
+<b>💎 SIGNAL CARD</b>
 <pre><code class="language-diff">
-[Gunakan + untuk HIJAU (positif)]
-[Gunakan - untuk MERAH (negatif)]
+[Gunakan tanda + untuk HIJAU (Buy/TP/Positif)]
+[Gunakan tanda - untuk MERAH (Sell/SL/Negatif)]
 
-+ ACTION:    [BUY/SELL/WAIT]
-+ ENTRY:     [harga entry]
-- STOPLOSS:  [harga SL]
-+ TP1:       [target 1]
-+ TP2:       [target 2]
-+ TP3:       [target 3]
-+ R:R RATIO: [rasio]
++ ACTION:  [BUY/SELL/WAIT]
++ ENTRY:   [harga entry spesifik]
+- SL:      [harga stoploss]
++ TP 1:    [target 1]
++ TP 2:    [target 2]
++ TP 3:    [target 3]
++ R:R:     [rasio risk reward]
 </code></pre>
 
 <b>📈 CONFIDENCE: [XX]%%</b>
-✅ Bullish Factors: [list]
-⚠️ Bearish Factors: [list]
 
-<b>📝 ANALYSIS</b>
-[Jelaskan reasoning secara ringkas - max 3 paragraf]
+<b>📝 ANALYSIS BRIEF</b>
+[Jelaskan alasan teknikal secara padat - max 2 paragraf]
 
-<b>⚠️ RISK MANAGEMENT</b>
+<b>⚠️ RISK NOTES</b>
 - Position Size: Max [X]%% dari portfolio
-- [Tips risk management spesifik]
+- [Kondisi invalidasi setup]
 
 ---
 <i>Generated by Antigravity AI • Data-Based Analysis</i>
-`, modeDescription, dataContext, symbol, getTradingModeName(mode), symbol, string(mode))
+`, baseRole, dataContext, strategy, symbol, symbol, getTradingModeName(mode), getTradingModeName(mode))
 }
 
 // FetchMultiTimeframeData fetches data for all timeframes without generating images

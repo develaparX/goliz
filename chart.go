@@ -458,3 +458,232 @@ func CalculateTechnicalSummary(candles []Candlestick) string {
 
 	return fmt.Sprintf("Trend: %s | Volatility: %s | Momentum: %s | RSI: %.1f", trend, volatility, momentum, rsi)
 }
+
+// TradeLevels holds the entry/exit levels for chart marking
+type TradeLevels struct {
+	Entry float64
+	SL    float64
+	TP1   float64
+	TP2   float64
+	TP3   float64
+}
+
+// Colors for level lines
+var (
+	colorEntry = color.RGBA{R: 33, G: 150, B: 243, A: 255}  // Blue - Entry
+	colorSL    = color.RGBA{R: 244, G: 67, B: 54, A: 255}   // Red - Stoploss
+	colorTP    = color.RGBA{R: 76, G: 175, B: 80, A: 255}   // Green - Take Profit
+)
+
+// GenerateChartWithLevels creates a chart with Entry/SL/TP levels marked
+func GenerateChartWithLevels(candles []Candlestick, symbol string, interval BinanceInterval, levels *TradeLevels) ([]byte, error) {
+	if len(candles) == 0 {
+		return nil, fmt.Errorf("no candle data to render")
+	}
+
+	config := DefaultChartConfig()
+	config.Width = 1400
+	config.Height = 700
+
+	// Create image
+	img := image.NewRGBA(image.Rect(0, 0, config.Width, config.Height))
+
+	// Fill background
+	bgColor := colorBgDark
+	draw.Draw(img, img.Bounds(), &image.Uniform{bgColor}, image.Point{}, draw.Src)
+
+	// Calculate price range (include levels in range)
+	minPrice, maxPrice := candles[0].Low, candles[0].High
+	maxVolume := candles[0].Volume
+	for _, c := range candles {
+		if c.Low < minPrice {
+			minPrice = c.Low
+		}
+		if c.High > maxPrice {
+			maxPrice = c.High
+		}
+		if c.Volume > maxVolume {
+			maxVolume = c.Volume
+		}
+	}
+
+	// Extend range to include levels
+	if levels != nil {
+		if levels.SL > 0 && levels.SL < minPrice {
+			minPrice = levels.SL * 0.995
+		}
+		if levels.TP3 > 0 && levels.TP3 > maxPrice {
+			maxPrice = levels.TP3 * 1.005
+		} else if levels.TP2 > 0 && levels.TP2 > maxPrice {
+			maxPrice = levels.TP2 * 1.005
+		} else if levels.TP1 > 0 && levels.TP1 > maxPrice {
+			maxPrice = levels.TP1 * 1.005
+		}
+	}
+
+	// Add padding to price range
+	priceRange := maxPrice - minPrice
+	minPrice -= priceRange * 0.05
+	maxPrice += priceRange * 0.05
+	priceRange = maxPrice - minPrice
+
+	// Calculate chart area
+	chartLeft := config.Padding
+	chartRight := config.Width - config.Padding - 80 // Extra space for level labels
+	chartTop := config.Padding
+	chartBottom := config.Height - config.Padding
+
+	if config.ShowVolume {
+		chartBottom = int(float64(config.Height-config.Padding) * 0.75)
+	}
+
+	chartWidth := chartRight - chartLeft
+	chartHeight := chartBottom - chartTop
+
+	// Volume area
+	volumeTop := chartBottom + 10
+	volumeBottom := config.Height - config.Padding
+	volumeHeight := volumeBottom - volumeTop
+
+	// Draw grid lines
+	drawHorizontalGridLines(img, chartLeft, chartRight, chartTop, chartBottom, 5, colorGridDark)
+
+	// Calculate candle positions
+	totalCandleWidth := config.CandleWidth + config.CandleGap
+	maxCandles := chartWidth / totalCandleWidth
+	if len(candles) > maxCandles {
+		candles = candles[len(candles)-maxCandles:]
+	}
+
+	// Draw candles
+	for i, c := range candles {
+		x := chartLeft + i*totalCandleWidth + config.CandleGap/2
+
+		// Calculate Y positions
+		openY := chartTop + int((maxPrice-c.Open)/priceRange*float64(chartHeight))
+		closeY := chartTop + int((maxPrice-c.Close)/priceRange*float64(chartHeight))
+		highY := chartTop + int((maxPrice-c.High)/priceRange*float64(chartHeight))
+		lowY := chartTop + int((maxPrice-c.Low)/priceRange*float64(chartHeight))
+
+		// Determine color
+		candleColor := colorBullish
+		if c.Close < c.Open {
+			candleColor = colorBearish
+		}
+
+		// Draw wick
+		wickX := x + config.CandleWidth/2
+		drawLine(img, wickX, highY, wickX, lowY, candleColor)
+
+		// Draw body
+		bodyTop := openY
+		bodyBottom := closeY
+		if closeY < openY {
+			bodyTop = closeY
+			bodyBottom = openY
+		}
+		if bodyBottom-bodyTop < 1 {
+			bodyBottom = bodyTop + 1
+		}
+		drawFilledRect(img, x, bodyTop, x+config.CandleWidth, bodyBottom, candleColor)
+
+		// Draw volume bar
+		if config.ShowVolume && maxVolume > 0 {
+			volHeight := int((c.Volume / maxVolume) * float64(volumeHeight))
+			volY := volumeBottom - volHeight
+			volColor := colorVolume
+			if c.Close < c.Open {
+				volColor = color.RGBA{R: 231, G: 76, B: 60, A: 128}
+			} else {
+				volColor = color.RGBA{R: 38, G: 166, B: 91, A: 128}
+			}
+			drawFilledRect(img, x, volY, x+config.CandleWidth, volumeBottom, volColor)
+		}
+	}
+
+	// Draw Moving Averages
+	if config.ShowMA && len(candles) > 50 {
+		ma20 := calculateMA(candles, 20)
+		ma50 := calculateMA(candles, 50)
+		drawMALine(img, ma20, candles, chartLeft, chartTop, totalCandleWidth, maxPrice, priceRange, float64(chartHeight), colorMA20)
+		drawMALine(img, ma50, candles, chartLeft, chartTop, totalCandleWidth, maxPrice, priceRange, float64(chartHeight), colorMA50)
+	}
+
+	// Draw Level Lines (Entry, SL, TP)
+	if levels != nil {
+		// Entry Level (Blue)
+		if levels.Entry > 0 {
+			entryY := chartTop + int((maxPrice-levels.Entry)/priceRange*float64(chartHeight))
+			drawHorizontalLevelLine(img, chartLeft, chartRight, entryY, colorEntry)
+			drawText(img, chartRight+5, entryY+4, fmt.Sprintf("ENTRY %.2f", levels.Entry), colorEntry)
+		}
+
+		// Stoploss Level (Red)
+		if levels.SL > 0 {
+			slY := chartTop + int((maxPrice-levels.SL)/priceRange*float64(chartHeight))
+			drawHorizontalLevelLine(img, chartLeft, chartRight, slY, colorSL)
+			drawText(img, chartRight+5, slY+4, fmt.Sprintf("SL %.2f", levels.SL), colorSL)
+		}
+
+		// TP1 Level (Green)
+		if levels.TP1 > 0 {
+			tp1Y := chartTop + int((maxPrice-levels.TP1)/priceRange*float64(chartHeight))
+			drawHorizontalLevelLine(img, chartLeft, chartRight, tp1Y, colorTP)
+			drawText(img, chartRight+5, tp1Y+4, fmt.Sprintf("TP1 %.2f", levels.TP1), colorTP)
+		}
+
+		// TP2 Level (Green)
+		if levels.TP2 > 0 {
+			tp2Y := chartTop + int((maxPrice-levels.TP2)/priceRange*float64(chartHeight))
+			drawHorizontalLevelLine(img, chartLeft, chartRight, tp2Y, colorTP)
+			drawText(img, chartRight+5, tp2Y+4, fmt.Sprintf("TP2 %.2f", levels.TP2), colorTP)
+		}
+
+		// TP3 Level (Green)
+		if levels.TP3 > 0 {
+			tp3Y := chartTop + int((maxPrice-levels.TP3)/priceRange*float64(chartHeight))
+			drawHorizontalLevelLine(img, chartLeft, chartRight, tp3Y, colorTP)
+			drawText(img, chartRight+5, tp3Y+4, fmt.Sprintf("TP3 %.2f", levels.TP3), colorTP)
+		}
+	}
+
+	// Draw price scale
+	drawPriceScale(img, chartRight+5, chartTop, chartBottom, minPrice, maxPrice, colorTextDark)
+
+	// Draw title
+	title := fmt.Sprintf("%s - %s | ENTRY CHART", symbol, GetTimeframeName(interval))
+	drawText(img, chartLeft, 20, title, colorTextDark)
+
+	// Draw current price
+	lastCandle := candles[len(candles)-1]
+	priceStr := formatPrice(lastCandle.Close)
+	priceColor := colorBullish
+	if lastCandle.Close < lastCandle.Open {
+		priceColor = colorBearish
+	}
+	drawText(img, chartLeft+300, 20, fmt.Sprintf("Price: %s", priceStr), priceColor)
+
+	// Draw timestamp
+	timestamp := time.Now().Format("2006-01-02 15:04 UTC")
+	drawText(img, chartRight-150, 20, timestamp, colorTextDark)
+
+	// Draw legend
+	drawText(img, chartLeft, chartBottom+50, "🔵 Entry  🔴 Stoploss  🟢 Take Profit  🟡 MA20  🟣 MA50", colorTextDark)
+
+	// Encode to PNG
+	var buf bytes.Buffer
+	if err := png.Encode(&buf, img); err != nil {
+		return nil, fmt.Errorf("failed to encode PNG: %w", err)
+	}
+
+	return buf.Bytes(), nil
+}
+
+// drawHorizontalLevelLine draws a dashed horizontal line for levels
+func drawHorizontalLevelLine(img *image.RGBA, x1, x2, y int, c color.Color) {
+	for x := x1; x <= x2; x++ {
+		// Solid line (or use x += 2 for dashed)
+		img.Set(x, y, c)
+		img.Set(x, y-1, c)
+	}
+}

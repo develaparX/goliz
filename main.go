@@ -1,12 +1,15 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"io"
 	"log"
 	"net/url"
 	"os"
+	"regexp"
+	"strconv"
 
 	"strings"
 	"sync"
@@ -521,7 +524,46 @@ Selamat datang! Saya adalah asisten trading AI Anda.
 			responseText = cleanHTML(responseText)
 			log.Printf("✅ [AUTO-DATA] Analysis received (%d chars)", len(responseText))
 			
-			// Send result with inline buttons
+			// Parse levels from response
+			levels := parseLevelsFromResponse(responseText)
+			if levels != nil {
+				log.Printf("📊 [AUTO-DATA] Parsed levels: Entry=%.2f, SL=%.2f, TP1=%.2f, TP2=%.2f, TP3=%.2f",
+					levels.Entry, levels.SL, levels.TP1, levels.TP2, levels.TP3)
+				
+				// Get best timeframe for chart (1H for scalping, 4H for swing/intraday)
+				chartInterval := Interval1h
+				if tradingMode == TradingModeSwing {
+					chartInterval = Interval4h
+				}
+				
+				// Fetch candles for chart
+				chartCandles, err := FetchCandlesticks(symbol, chartInterval, 100)
+				if err == nil {
+					// Generate chart with levels
+					chartImg, err := GenerateChartWithLevels(chartCandles, symbol, chartInterval, levels)
+					if err == nil {
+						log.Printf("📊 [AUTO-DATA] Generated entry chart (%d bytes)", len(chartImg))
+						
+						// Send chart first
+						photo := &tele.Photo{
+							File:    tele.FromReader(bytes.NewReader(chartImg)),
+							Caption: fmt.Sprintf("📊 %s Entry Chart\n🔵 Entry: %.2f\n🔴 SL: %.2f\n🟢 TP1: %.2f", symbol, levels.Entry, levels.SL, levels.TP1),
+						}
+						_, err = b.Send(chat, photo)
+						if err != nil {
+							log.Printf("⚠️ [AUTO-DATA] Failed to send chart: %v", err)
+						} else {
+							log.Printf("✅ [AUTO-DATA] Entry chart sent!")
+						}
+					} else {
+						log.Printf("⚠️ [AUTO-DATA] Failed to generate chart: %v", err)
+					}
+				}
+			} else {
+				log.Printf("⚠️ [AUTO-DATA] Could not parse levels from response")
+			}
+			
+			// Send analysis result with inline buttons
 			msg, err := b.Send(chat, responseText, &tele.SendOptions{
 				ParseMode: tele.ModeHTML,
 				ReplyMarkup: &tele.ReplyMarkup{
@@ -718,4 +760,39 @@ func cleanHTML(text string) string {
 	text = strings.ReplaceAll(text, " & ", " &amp; ")
 
 	return text
+}
+
+// parseLevelsFromResponse extracts Entry, SL, TP levels from AI response
+func parseLevelsFromResponse(text string) *TradeLevels {
+	levels := &TradeLevels{}
+	
+	// Regex patterns to extract price levels
+	// Looking for patterns like "ENTRY:   98500.00" or "+ ENTRY: 98500"
+	entryRe := regexp.MustCompile(`(?i)ENTRY[:\s]+([0-9]+\.?[0-9]*)`)
+	slRe := regexp.MustCompile(`(?i)(?:SL|STOPLOSS)[:\s]+([0-9]+\.?[0-9]*)`)
+	tp1Re := regexp.MustCompile(`(?i)TP\s*1[:\s]+([0-9]+\.?[0-9]*)`)
+	tp2Re := regexp.MustCompile(`(?i)TP\s*2[:\s]+([0-9]+\.?[0-9]*)`)
+	tp3Re := regexp.MustCompile(`(?i)TP\s*3[:\s]+([0-9]+\.?[0-9]*)`)
+	
+	if match := entryRe.FindStringSubmatch(text); len(match) > 1 {
+		levels.Entry, _ = strconv.ParseFloat(match[1], 64)
+	}
+	if match := slRe.FindStringSubmatch(text); len(match) > 1 {
+		levels.SL, _ = strconv.ParseFloat(match[1], 64)
+	}
+	if match := tp1Re.FindStringSubmatch(text); len(match) > 1 {
+		levels.TP1, _ = strconv.ParseFloat(match[1], 64)
+	}
+	if match := tp2Re.FindStringSubmatch(text); len(match) > 1 {
+		levels.TP2, _ = strconv.ParseFloat(match[1], 64)
+	}
+	if match := tp3Re.FindStringSubmatch(text); len(match) > 1 {
+		levels.TP3, _ = strconv.ParseFloat(match[1], 64)
+	}
+	
+	// Check if we got at least entry and SL
+	if levels.Entry > 0 && levels.SL > 0 {
+		return levels
+	}
+	return nil
 }
