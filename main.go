@@ -492,7 +492,7 @@ Selamat datang! Saya adalah asisten trading AI Anda.
 			
 			// Call Gemini
 			log.Printf("🤖 [AUTO-DATA] Calling Gemini AI...")
-			resp, err := client.Models.GenerateContent(ctx, "gemini-2.0-flash", contents, config)
+			resp, err := client.Models.GenerateContent(ctx, "gemini-flash-latest", contents, config)
 			
 			// Delete status message
 			if statusMsg != nil {
