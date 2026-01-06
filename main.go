@@ -1,13 +1,14 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"io"
 	"log"
 	"net/url"
 	"os"
-	
+
 	"strings"
 	"sync"
 	"time"
@@ -21,8 +22,11 @@ import (
 type AnalysisMode int
 
 const (
-	ModeStandard AnalysisMode = iota // /analyst
-	ModeScalping                     // /analyst-scalping
+	ModeStandard     AnalysisMode = iota // /analyst
+	ModeScalping                         // /analyst-scalping
+	ModeAutoScalping                     // /autosc - auto fetch charts for scalping
+	ModeAutoSwing                        // /autosw - auto fetch charts for swing
+	ModeAutoIntraday                     // /autoint - auto fetch charts for intraday
 )
 
 var (
@@ -146,10 +150,16 @@ Volatilitas: [Low/Med/High]
 }
 
 func getModeName(m AnalysisMode) string {
-	if m == ModeScalping {
+	switch m {
+	case ModeScalping, ModeAutoScalping:
 		return "SCALPING CAFE"
+	case ModeAutoSwing:
+		return "SWING MASTER"
+	case ModeAutoIntraday:
+		return "INTRADAY PRO"
+	default:
+		return "STANDARD LABS"
 	}
-	return "STANDARD LABS"
 }
 
 func main() {
@@ -179,8 +189,22 @@ func main() {
 	// === Commands ===
 	var handlePhoto func(c tele.Context) error
 	
+	// Middleware: Log all incoming messages for debugging
+	b.Use(func(next tele.HandlerFunc) tele.HandlerFunc {
+		return func(c tele.Context) error {
+			if c.Message() != nil {
+				log.Printf("📨 [INCOMING] From: %d | Text: '%s' | HasPhoto: %v", 
+					c.Sender().ID, 
+					c.Message().Text, 
+					c.Message().Photo != nil)
+			}
+			return next(c)
+		}
+	})
+	
 	// /analyst - Set standard mode
 	b.Handle("/analyst", func(c tele.Context) error {
+		log.Printf("🔥 [HANDLER] /analyst triggered by user %d", c.Sender().ID)
 		userMode.Store(c.Sender().ID, ModeStandard)
 		if c.Message().Photo != nil {
 			return handlePhoto(c)
@@ -190,6 +214,7 @@ func main() {
 
 	// /analyst-scalping - Set scalping mode
 	b.Handle("/scalping", func(c tele.Context) error { // shortened for ease
+		log.Printf("🔥 [HANDLER] /scalping triggered by user %d", c.Sender().ID)
 		userMode.Store(c.Sender().ID, ModeScalping)
 		if c.Message().Photo != nil {
 			return handlePhoto(c)
@@ -198,6 +223,7 @@ func main() {
 	})
 	// Handle full command name too just in case
 	b.Handle("/analyst-scalping", func(c tele.Context) error {
+		log.Printf("🔥 [HANDLER] /analyst-scalping triggered by user %d", c.Sender().ID)
 		userMode.Store(c.Sender().ID, ModeScalping)
 		if c.Message().Photo != nil {
 			return handlePhoto(c)
@@ -207,25 +233,32 @@ func main() {
 
 	// /help - Show usage instructions
 	helpHandler := func(c tele.Context) error {
+		log.Printf("🔥 [HANDLER] /help or /start triggered by user %d", c.Sender().ID)
 		helpText := `🤖 <b>ANTIGRAVITY AI BOT</b> 🤖
 		
 Selamat datang! Saya adalah asisten trading AI Anda.
 
 <b>📚 CARA PENGGUNAAN:</b>
 
-1. <b>Pilih Mode Analisa:</b>
-   • /analyst - <b>Mode Standard</b> (Swing/Intraday). Mencari setup High Probability & SMC.
-   • /scalping - <b>Mode Scalping</b> (M1/M5). Sinyal cepat, SL ketat, target pendek.
+<b>1. Mode Manual (Kirim Screenshot):</b>
+   • /analyst - <b>Mode Standard</b> (Swing/Intraday)
+   • /scalping - <b>Mode Scalping</b> (M1/M5)
+   
+<b>2. Mode Auto (Binance Chart):</b>
+   • /autosc BTCUSDT - <b>Auto Scalping</b> (5m,15m,1H,4H,1D)
+   • /autosw BTCUSDT - <b>Auto Swing</b> (5m,15m,1H,4H,1D,1W)
+   • /autoint BTCUSDT - <b>Auto Intraday</b> (5m,15m,1H,4H,1D,1W)
 
-2. <b>Kirim Chart:</b>
-   • Kirim <b>GAMBAR</b> chart Anda.
-   • <b>WAJIB</b> tulis nama aset di caption (contoh: "XAUUSD", "BTCUSDT").
-   • Jika gambar buram, kirim sebagai <b>FILE</b>.
+<b>3. Kirim Chart Manual:</b>
+   • Kirim <b>GAMBAR</b> chart Anda
+   • <b>WAJIB</b> tulis nama aset di caption
+   • <b>Top-Down Analysis</b>: Kirim beberapa gambar sekaligus (Album)
 
-3. <b>Fitur Tambahan:</b>
-   • <b>Top-Down Analysis</b>: Kirim beberapa gambar sekaligus (Album). Bot akan menganalisa dari Timeframe besar ke kecil.
+<b>💡 Contoh Auto Mode:</b>
+<code>/autosc ETHUSDT</code> - Scalping analysis untuk Ethereum
+<code>/autosw BTCUSDT</code> - Swing analysis untuk Bitcoin
 
-<b>🚀 Mulai sekarang dengan memilih mode di atas!</b>`
+<b>🚀 Mulai sekarang!</b>`
 		return c.Send(helpText, tele.ModeHTML)
 	}
 	
@@ -361,6 +394,172 @@ Selamat datang! Saya adalah asisten trading AI Anda.
 		}
 	}
 
+	// === Auto Trading Command Handlers ===
+	
+	// Helper function to process auto chart analysis
+	processAutoChart := func(c tele.Context, tradingMode TradingMode, analysisMode AnalysisMode) error {
+		log.Printf("📥 [AUTO-CHART] Command received: mode=%s", tradingMode)
+		
+		// Parse symbol from command arguments
+		args := c.Args()
+		if len(args) == 0 {
+			log.Printf("⚠️ [AUTO-CHART] No symbol provided")
+			return c.Send("⚠️ <b>Mohon masukkan simbol trading!</b>\n\nContoh: <code>/autosc BTCUSDT</code>", tele.ModeHTML)
+		}
+		
+		symbol := strings.ToUpper(args[0])
+		userID := c.Sender().ID
+		chat := c.Chat()
+		
+		log.Printf("📊 [AUTO-CHART] Processing symbol: %s for user: %d", symbol, userID)
+		
+		// Store mode
+		userMode.Store(userID, analysisMode)
+		
+		// Send initial status
+		modeName := getModeName(analysisMode)
+		timeframes := GetTimeframesForMode(tradingMode)
+		tfList := ""
+		for i, tf := range timeframes {
+			if i > 0 {
+				tfList += ", "
+			}
+			tfList += string(tf)
+		}
+		
+		log.Printf("⏰ [AUTO-CHART] Timeframes to fetch: %s", tfList)
+		
+		statusMsg, sendErr := b.Send(chat, fmt.Sprintf(`⏳ <b>FETCHING CHARTS...</b>
+
+📊 <b>Symbol:</b> %s
+⚙️ <b>Mode:</b> %s
+🕐 <b>Timeframes:</b> %s
+📈 <b>Candles:</b> 200 (Wide Context)
+
+<i>Mengambil data dari Binance dan generating chart...</i>`, symbol, modeName, tfList), tele.ModeHTML)
+		
+		if sendErr != nil {
+			log.Printf("❌ [AUTO-CHART] Failed to send status message: %v", sendErr)
+		} else {
+			log.Printf("✅ [AUTO-CHART] Status message sent")
+		}
+		
+		// Run in goroutine to not block
+		go func() {
+			log.Printf("🔄 [AUTO-CHART] Starting goroutine for %s", symbol)
+			
+			// Validate symbol first
+			log.Printf("🔍 [AUTO-CHART] Validating symbol: %s", symbol)
+			valid, err := ValidateSymbol(symbol)
+			if err != nil {
+				log.Printf("❌ [AUTO-CHART] Symbol validation error: %v", err)
+			}
+			if !valid {
+				log.Printf("❌ [AUTO-CHART] Symbol '%s' not found on Binance", symbol)
+				if statusMsg != nil {
+					b.Delete(statusMsg)
+				}
+				b.Send(chat, fmt.Sprintf("❌ <b>Symbol '%s' tidak ditemukan di Binance!</b>\n\nPastikan format benar, contoh: BTCUSDT, ETHUSDT, SOLUSDT", symbol), tele.ModeHTML)
+				return
+			}
+			log.Printf("✅ [AUTO-CHART] Symbol '%s' validated successfully", symbol)
+			
+			// Fetch and generate charts (200 candles for wide context)
+			log.Printf("📈 [AUTO-CHART] Fetching candlestick data and generating charts...")
+			charts, err := GenerateMultiTimeframeCharts(symbol, tradingMode, 200)
+			if err != nil {
+				log.Printf("❌ [AUTO-CHART] Error generating charts: %v", err)
+				if statusMsg != nil {
+					b.Delete(statusMsg)
+				}
+				b.Send(chat, fmt.Sprintf("❌ <b>Error generating charts:</b> %s", err.Error()), tele.ModeHTML)
+				return
+			}
+			log.Printf("✅ [AUTO-CHART] Generated %d charts successfully", len(charts))
+			
+			// Update status
+			if statusMsg != nil {
+				b.Edit(statusMsg, fmt.Sprintf(`✅ <b>CHARTS GENERATED!</b>
+
+📊 <b>Symbol:</b> %s
+📈 <b>Charts:</b> %d timeframes
+🤖 <b>Status:</b> Sending to AI for analysis...`, symbol, len(charts)), tele.ModeHTML)
+			}
+			
+			// Collect chart images for analysis
+			images := make([][]byte, 0, len(charts))
+			for _, chart := range charts {
+				images = append(images, chart.ImageData)
+				log.Printf("📊 [AUTO-CHART] Chart %s: %d bytes", chart.Interval, len(chart.ImageData))
+			}
+			
+			// Generate technical summary for context
+			techSummaries := make([]string, 0, len(charts))
+			for _, chart := range charts {
+				summary := CalculateTechnicalSummary(chart.Candles)
+				techSummaries = append(techSummaries, fmt.Sprintf("%s: %s", GetTimeframeName(chart.Interval), summary))
+				log.Printf("📋 [AUTO-CHART] %s: %s", GetTimeframeName(chart.Interval), summary)
+			}
+			
+			// Delete status message before sending analysis
+			if statusMsg != nil {
+				b.Delete(statusMsg)
+			}
+			
+			// Send chart images to user first (as album)
+			log.Printf("📤 [AUTO-CHART] Sending album with %d charts to Telegram...", len(charts))
+			album := make(tele.Album, 0, len(charts))
+			for i, chart := range charts {
+				photo := &tele.Photo{
+					File: tele.FromReader(bytes.NewReader(chart.ImageData)),
+				}
+				if i == 0 {
+					photo.Caption = fmt.Sprintf("📊 %s Multi-Timeframe Analysis\n⚙️ Mode: %s", symbol, modeName)
+				}
+				album = append(album, photo)
+			}
+			
+			_, err = b.SendAlbum(chat, album)
+			if err != nil {
+				log.Printf("❌ [AUTO-CHART] Error sending album: %v", err)
+			} else {
+				log.Printf("✅ [AUTO-CHART] Album sent successfully!")
+			}
+			
+			// Build enhanced caption with technical data
+			enhancedCaption := fmt.Sprintf("%s [AUTO-%s]\nTechnical Context:\n%s", 
+				symbol, 
+				strings.ToUpper(string(tradingMode)),
+				strings.Join(techSummaries, "\n"))
+			
+			log.Printf("🤖 [AUTO-CHART] Sending to AI for analysis...")
+			// Process analysis
+			processAnalysis(userID, enhancedCaption, images, chat)
+			log.Printf("✅ [AUTO-CHART] Analysis complete for %s", symbol)
+		}()
+		
+		log.Printf("⏳ [AUTO-CHART] Goroutine started, returning immediately")
+		return nil
+	}
+	
+	// /autosc - Auto Scalping
+	b.Handle("/autosc", func(c tele.Context) error {
+		log.Printf("🔥 [HANDLER] /autosc triggered by user %d", c.Sender().ID)
+		return processAutoChart(c, TradingModeScalping, ModeAutoScalping)
+	})
+	
+	// /autosw - Auto Swing
+	b.Handle("/autosw", func(c tele.Context) error {
+		log.Printf("🔥 [HANDLER] /autosw triggered by user %d", c.Sender().ID)
+		return processAutoChart(c, TradingModeSwing, ModeAutoSwing)
+	})
+	
+	// /autoint - Auto Intraday
+	b.Handle("/autoint", func(c tele.Context) error {
+		log.Printf("🔥 [HANDLER] /autoint triggered by user %d", c.Sender().ID)
+		return processAutoChart(c, TradingModeIntraday, ModeAutoIntraday)
+	})
+
 
 	// === Helper: Interactive Callbacks ===
 	b.Handle(&tele.InlineButton{Unique: "disclaimer_btn"}, func(c tele.Context) error {
@@ -473,6 +672,7 @@ Selamat datang! Saya adalah asisten trading AI Anda.
 	
 	b.Handle(tele.OnPhoto, handlePhoto)
 
+	log.Println("📋 [STARTUP] Registered handlers: /analyst, /scalping, /autosc, /autosw, /autoint, /help, /start")
 	fmt.Println("🚀 Antigravity Bot (Multi-Mode) Started...")
 	b.Start()
 }
