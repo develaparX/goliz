@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"context"
 	"fmt"
 	"io"
@@ -396,14 +395,14 @@ Selamat datang! Saya adalah asisten trading AI Anda.
 
 	// === Auto Trading Command Handlers ===
 	
-	// Helper function to process auto chart analysis
+	// Helper function to process auto chart analysis (DATA-BASED - no images)
 	processAutoChart := func(c tele.Context, tradingMode TradingMode, analysisMode AnalysisMode) error {
-		log.Printf("📥 [AUTO-CHART] Command received: mode=%s", tradingMode)
+		log.Printf("📥 [AUTO-DATA] Command received: mode=%s", tradingMode)
 		
 		// Parse symbol from command arguments
 		args := c.Args()
 		if len(args) == 0 {
-			log.Printf("⚠️ [AUTO-CHART] No symbol provided")
+			log.Printf("⚠️ [AUTO-DATA] No symbol provided")
 			return c.Send("⚠️ <b>Mohon masukkan simbol trading!</b>\n\nContoh: <code>/autosc BTCUSDT</code>", tele.ModeHTML)
 		}
 		
@@ -411,7 +410,7 @@ Selamat datang! Saya adalah asisten trading AI Anda.
 		userID := c.Sender().ID
 		chat := c.Chat()
 		
-		log.Printf("📊 [AUTO-CHART] Processing symbol: %s for user: %d", symbol, userID)
+		log.Printf("📊 [AUTO-DATA] Processing symbol: %s for user: %d", symbol, userID)
 		
 		// Store mode
 		userMode.Store(userID, analysisMode)
@@ -427,118 +426,134 @@ Selamat datang! Saya adalah asisten trading AI Anda.
 			tfList += string(tf)
 		}
 		
-		log.Printf("⏰ [AUTO-CHART] Timeframes to fetch: %s", tfList)
+		log.Printf("⏰ [AUTO-DATA] Timeframes to fetch: %s", tfList)
 		
-		statusMsg, sendErr := b.Send(chat, fmt.Sprintf(`⏳ <b>FETCHING CHARTS...</b>
+		statusMsg, sendErr := b.Send(chat, fmt.Sprintf(`⏳ <b>FETCHING DATA...</b>
 
 📊 <b>Symbol:</b> %s
 ⚙️ <b>Mode:</b> %s
 🕐 <b>Timeframes:</b> %s
-📈 <b>Candles:</b> 200 (Wide Context)
+📈 <b>Candles:</b> 200 per timeframe
 
-<i>Mengambil data dari Binance dan generating chart...</i>`, symbol, modeName, tfList), tele.ModeHTML)
+<i>Mengambil data dari Binance...</i>`, symbol, modeName, tfList), tele.ModeHTML)
 		
 		if sendErr != nil {
-			log.Printf("❌ [AUTO-CHART] Failed to send status message: %v", sendErr)
+			log.Printf("❌ [AUTO-DATA] Failed to send status message: %v", sendErr)
 		} else {
-			log.Printf("✅ [AUTO-CHART] Status message sent")
+			log.Printf("✅ [AUTO-DATA] Status message sent")
 		}
 		
 		// Run in goroutine to not block
 		go func() {
-			log.Printf("🔄 [AUTO-CHART] Starting goroutine for %s", symbol)
+			log.Printf("🔄 [AUTO-DATA] Starting goroutine for %s", symbol)
 			
-			// Validate symbol first
-			log.Printf("🔍 [AUTO-CHART] Validating symbol: %s", symbol)
-			valid, err := ValidateSymbol(symbol)
+			// Fetch multi-timeframe data (200 candles for context)
+			log.Printf("📈 [AUTO-DATA] Fetching candlestick data...")
+			summaries, err := FetchMultiTimeframeData(symbol, tradingMode, 200)
 			if err != nil {
-				log.Printf("❌ [AUTO-CHART] Symbol validation error: %v", err)
-			}
-			if !valid {
-				log.Printf("❌ [AUTO-CHART] Symbol '%s' not found on Binance", symbol)
+				log.Printf("❌ [AUTO-DATA] Error fetching data: %v", err)
 				if statusMsg != nil {
 					b.Delete(statusMsg)
 				}
-				b.Send(chat, fmt.Sprintf("❌ <b>Symbol '%s' tidak ditemukan di Binance!</b>\n\nPastikan format benar, contoh: BTCUSDT, ETHUSDT, SOLUSDT", symbol), tele.ModeHTML)
+				b.Send(chat, fmt.Sprintf("❌ <b>Error fetching data:</b> %s\n\n<i>Pastikan symbol benar (contoh: BTCUSDT) dan koneksi internet stabil.</i>", err.Error()), tele.ModeHTML)
 				return
 			}
-			log.Printf("✅ [AUTO-CHART] Symbol '%s' validated successfully", symbol)
+			log.Printf("✅ [AUTO-DATA] Fetched data for %d timeframes", len(summaries))
 			
-			// Fetch and generate charts (200 candles for wide context)
-			log.Printf("📈 [AUTO-CHART] Fetching candlestick data and generating charts...")
-			charts, err := GenerateMultiTimeframeCharts(symbol, tradingMode, 200)
-			if err != nil {
-				log.Printf("❌ [AUTO-CHART] Error generating charts: %v", err)
-				if statusMsg != nil {
-					b.Delete(statusMsg)
-				}
-				b.Send(chat, fmt.Sprintf("❌ <b>Error generating charts:</b> %s", err.Error()), tele.ModeHTML)
-				return
+			// Log summary for each timeframe
+			for _, s := range summaries {
+				log.Printf("📋 [AUTO-DATA] %s: Trend=%s, RSI=%.1f, Change=%.2f%%", 
+					GetTimeframeName(s.Interval), s.Trend, s.RSI, s.PriceChange)
 			}
-			log.Printf("✅ [AUTO-CHART] Generated %d charts successfully", len(charts))
 			
 			// Update status
 			if statusMsg != nil {
-				b.Edit(statusMsg, fmt.Sprintf(`✅ <b>CHARTS GENERATED!</b>
+				b.Edit(statusMsg, fmt.Sprintf(`✅ <b>DATA FETCHED!</b>
 
 📊 <b>Symbol:</b> %s
-📈 <b>Charts:</b> %d timeframes
-🤖 <b>Status:</b> Sending to AI for analysis...`, symbol, len(charts)), tele.ModeHTML)
+📈 <b>Timeframes:</b> %d
+🤖 <b>Status:</b> Analyzing with AI...`, symbol, len(summaries)), tele.ModeHTML)
 			}
 			
-			// Collect chart images for analysis
-			images := make([][]byte, 0, len(charts))
-			for _, chart := range charts {
-				images = append(images, chart.ImageData)
-				log.Printf("📊 [AUTO-CHART] Chart %s: %d bytes", chart.Interval, len(chart.ImageData))
-			}
+			// Format data for AI
+			dataContext := FormatDataForAI(symbol, summaries, tradingMode)
+			log.Printf("📝 [AUTO-DATA] Data formatted for AI (%d bytes)", len(dataContext))
 			
-			// Generate technical summary for context
-			techSummaries := make([]string, 0, len(charts))
-			for _, chart := range charts {
-				summary := CalculateTechnicalSummary(chart.Candles)
-				techSummaries = append(techSummaries, fmt.Sprintf("%s: %s", GetTimeframeName(chart.Interval), summary))
-				log.Printf("📋 [AUTO-CHART] %s: %s", GetTimeframeName(chart.Interval), summary)
-			}
+			// Generate specialized prompt for data analysis
+			prompt := GenerateDataAnalysisPrompt(tradingMode, symbol, dataContext)
 			
-			// Delete status message before sending analysis
+			// Build Gemini request (text only, no images!)
+			parts := []*genai.Part{genai.NewPartFromText(prompt)}
+			contents := []*genai.Content{{Parts: parts, Role: "user"}}
+			
+			// Tools (Google Search for sentiment)
+			tools := []*genai.Tool{{GoogleSearch: &genai.GoogleSearch{}}}
+			config := &genai.GenerateContentConfig{Tools: tools}
+			
+			// Call Gemini
+			log.Printf("🤖 [AUTO-DATA] Calling Gemini AI...")
+			resp, err := client.Models.GenerateContent(ctx, "gemini-2.0-flash", contents, config)
+			
+			// Delete status message
 			if statusMsg != nil {
 				b.Delete(statusMsg)
 			}
 			
-			// Send chart images to user first (as album)
-			log.Printf("📤 [AUTO-CHART] Sending album with %d charts to Telegram...", len(charts))
-			album := make(tele.Album, 0, len(charts))
-			for i, chart := range charts {
-				photo := &tele.Photo{
-					File: tele.FromReader(bytes.NewReader(chart.ImageData)),
-				}
-				if i == 0 {
-					photo.Caption = fmt.Sprintf("📊 %s Multi-Timeframe Analysis\n⚙️ Mode: %s", symbol, modeName)
-				}
-				album = append(album, photo)
-			}
-			
-			_, err = b.SendAlbum(chat, album)
 			if err != nil {
-				log.Printf("❌ [AUTO-CHART] Error sending album: %v", err)
-			} else {
-				log.Printf("✅ [AUTO-CHART] Album sent successfully!")
+				log.Printf("❌ [AUTO-DATA] Gemini API Error: %v", err)
+				b.Send(chat, "⚠️ <b>Error analyzing</b> (Quota or API Issue). Try again later.", tele.ModeHTML)
+				return
 			}
 			
-			// Build enhanced caption with technical data
-			enhancedCaption := fmt.Sprintf("%s [AUTO-%s]\nTechnical Context:\n%s", 
-				symbol, 
-				strings.ToUpper(string(tradingMode)),
-				strings.Join(techSummaries, "\n"))
+			if resp == nil || len(resp.Candidates) == 0 {
+				log.Printf("❌ [AUTO-DATA] Empty response from Gemini")
+				b.Send(chat, "⚠️ No response from AI.", tele.ModeHTML)
+				return
+			}
 			
-			log.Printf("🤖 [AUTO-CHART] Sending to AI for analysis...")
-			// Process analysis
-			processAnalysis(userID, enhancedCaption, images, chat)
-			log.Printf("✅ [AUTO-CHART] Analysis complete for %s", symbol)
+			// Extract response text
+			responseText := ""
+			for _, part := range resp.Candidates[0].Content.Parts {
+				responseText += part.Text
+			}
+			
+			// Clean HTML
+			responseText = cleanHTML(responseText)
+			log.Printf("✅ [AUTO-DATA] Analysis received (%d chars)", len(responseText))
+			
+			// Send result with inline buttons
+			msg, err := b.Send(chat, responseText, &tele.SendOptions{
+				ParseMode: tele.ModeHTML,
+				ReplyMarkup: &tele.ReplyMarkup{
+					InlineKeyboard: [][]tele.InlineButton{
+						{
+							{
+								Text: "📈 TradingView",
+								URL:  fmt.Sprintf("https://www.tradingview.com/chart/?symbol=BINANCE:%s", symbol),
+							},
+							{
+								Text: "📰 News",
+								URL:  fmt.Sprintf("https://www.google.com/search?q=%s+crypto+news", symbol),
+							},
+						},
+						{
+							{
+								Text:   "⚠️ Disclaimer",
+								Unique: "disclaimer_btn",
+							},
+						},
+					},
+				},
+			})
+			
+			if err != nil {
+				log.Printf("❌ [AUTO-DATA] Failed to send analysis: %v", err)
+			} else {
+				log.Printf("✅ [AUTO-DATA] Analysis sent (MsgID: %d)", msg.ID)
+			}
 		}()
 		
-		log.Printf("⏳ [AUTO-CHART] Goroutine started, returning immediately")
+		log.Printf("⏳ [AUTO-DATA] Goroutine started, returning immediately")
 		return nil
 	}
 	

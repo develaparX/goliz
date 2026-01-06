@@ -43,6 +43,20 @@ const (
 	TradingModeIntraday TradingMode = "intraday"
 )
 
+// getTradingModeName returns human-readable name for trading mode
+func getTradingModeName(mode TradingMode) string {
+	switch mode {
+	case TradingModeScalping:
+		return "SCALPING CAFE"
+	case TradingModeSwing:
+		return "SWING MASTER"
+	case TradingModeIntraday:
+		return "INTRADAY PRO"
+	default:
+		return "STANDARD"
+	}
+}
+
 // GetTimeframesForMode returns the appropriate timeframes for each trading mode
 // Top-Down Analysis: 5m, 15m, 1H, 4H, 1D, 1W
 func GetTimeframesForMode(mode TradingMode) []BinanceInterval {
