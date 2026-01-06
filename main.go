@@ -1,13 +1,16 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"io"
 	"log"
 	"net/url"
 	"os"
-	
+	"regexp"
+	"strconv"
+
 	"strings"
 	"sync"
 	"time"
@@ -21,8 +24,11 @@ import (
 type AnalysisMode int
 
 const (
-	ModeStandard AnalysisMode = iota // /analyst
-	ModeScalping                     // /analyst-scalping
+	ModeStandard     AnalysisMode = iota // /analyst
+	ModeScalping                         // /analyst-scalping
+	ModeAutoScalping                     // /autosc - auto fetch charts for scalping
+	ModeAutoSwing                        // /autosw - auto fetch charts for swing
+	ModeAutoIntraday                     // /autoint - auto fetch charts for intraday
 )
 
 var (
@@ -146,10 +152,16 @@ Volatilitas: [Low/Med/High]
 }
 
 func getModeName(m AnalysisMode) string {
-	if m == ModeScalping {
+	switch m {
+	case ModeScalping, ModeAutoScalping:
 		return "SCALPING CAFE"
+	case ModeAutoSwing:
+		return "SWING MASTER"
+	case ModeAutoIntraday:
+		return "INTRADAY PRO"
+	default:
+		return "STANDARD LABS"
 	}
-	return "STANDARD LABS"
 }
 
 func main() {
@@ -179,8 +191,22 @@ func main() {
 	// === Commands ===
 	var handlePhoto func(c tele.Context) error
 	
+	// Middleware: Log all incoming messages for debugging
+	b.Use(func(next tele.HandlerFunc) tele.HandlerFunc {
+		return func(c tele.Context) error {
+			if c.Message() != nil {
+				log.Printf("📨 [INCOMING] From: %d | Text: '%s' | HasPhoto: %v", 
+					c.Sender().ID, 
+					c.Message().Text, 
+					c.Message().Photo != nil)
+			}
+			return next(c)
+		}
+	})
+	
 	// /analyst - Set standard mode
 	b.Handle("/analyst", func(c tele.Context) error {
+		log.Printf("🔥 [HANDLER] /analyst triggered by user %d", c.Sender().ID)
 		userMode.Store(c.Sender().ID, ModeStandard)
 		if c.Message().Photo != nil {
 			return handlePhoto(c)
@@ -190,6 +216,7 @@ func main() {
 
 	// /analyst-scalping - Set scalping mode
 	b.Handle("/scalping", func(c tele.Context) error { // shortened for ease
+		log.Printf("🔥 [HANDLER] /scalping triggered by user %d", c.Sender().ID)
 		userMode.Store(c.Sender().ID, ModeScalping)
 		if c.Message().Photo != nil {
 			return handlePhoto(c)
@@ -198,6 +225,7 @@ func main() {
 	})
 	// Handle full command name too just in case
 	b.Handle("/analyst-scalping", func(c tele.Context) error {
+		log.Printf("🔥 [HANDLER] /analyst-scalping triggered by user %d", c.Sender().ID)
 		userMode.Store(c.Sender().ID, ModeScalping)
 		if c.Message().Photo != nil {
 			return handlePhoto(c)
@@ -207,25 +235,32 @@ func main() {
 
 	// /help - Show usage instructions
 	helpHandler := func(c tele.Context) error {
+		log.Printf("🔥 [HANDLER] /help or /start triggered by user %d", c.Sender().ID)
 		helpText := `🤖 <b>ANTIGRAVITY AI BOT</b> 🤖
 		
 Selamat datang! Saya adalah asisten trading AI Anda.
 
 <b>📚 CARA PENGGUNAAN:</b>
 
-1. <b>Pilih Mode Analisa:</b>
-   • /analyst - <b>Mode Standard</b> (Swing/Intraday). Mencari setup High Probability & SMC.
-   • /scalping - <b>Mode Scalping</b> (M1/M5). Sinyal cepat, SL ketat, target pendek.
+<b>1. Mode Manual (Kirim Screenshot):</b>
+   • /analyst - <b>Mode Standard</b> (Swing/Intraday)
+   • /scalping - <b>Mode Scalping</b> (M1/M5)
+   
+<b>2. Mode Auto (Binance Chart):</b>
+   • /autosc BTCUSDT - <b>Auto Scalping</b> (5m,15m,1H,4H,1D)
+   • /autosw BTCUSDT - <b>Auto Swing</b> (5m,15m,1H,4H,1D,1W)
+   • /autoint BTCUSDT - <b>Auto Intraday</b> (5m,15m,1H,4H,1D,1W)
 
-2. <b>Kirim Chart:</b>
-   • Kirim <b>GAMBAR</b> chart Anda.
-   • <b>WAJIB</b> tulis nama aset di caption (contoh: "XAUUSD", "BTCUSDT").
-   • Jika gambar buram, kirim sebagai <b>FILE</b>.
+<b>3. Kirim Chart Manual:</b>
+   • Kirim <b>GAMBAR</b> chart Anda
+   • <b>WAJIB</b> tulis nama aset di caption
+   • <b>Top-Down Analysis</b>: Kirim beberapa gambar sekaligus (Album)
 
-3. <b>Fitur Tambahan:</b>
-   • <b>Top-Down Analysis</b>: Kirim beberapa gambar sekaligus (Album). Bot akan menganalisa dari Timeframe besar ke kecil.
+<b>💡 Contoh Auto Mode:</b>
+<code>/autosc ETHUSDT</code> - Scalping analysis untuk Ethereum
+<code>/autosw BTCUSDT</code> - Swing analysis untuk Bitcoin
 
-<b>🚀 Mulai sekarang dengan memilih mode di atas!</b>`
+<b>🚀 Mulai sekarang!</b>`
 		return c.Send(helpText, tele.ModeHTML)
 	}
 	
@@ -361,6 +396,227 @@ Selamat datang! Saya adalah asisten trading AI Anda.
 		}
 	}
 
+	// === Auto Trading Command Handlers ===
+	
+	// Helper function to process auto chart analysis (DATA-BASED - no images)
+	processAutoChart := func(c tele.Context, tradingMode TradingMode, analysisMode AnalysisMode) error {
+		log.Printf("📥 [AUTO-DATA] Command received: mode=%s", tradingMode)
+		
+		// Parse symbol from command arguments
+		args := c.Args()
+		if len(args) == 0 {
+			log.Printf("⚠️ [AUTO-DATA] No symbol provided")
+			return c.Send("⚠️ <b>Mohon masukkan simbol trading!</b>\n\nContoh: <code>/autosc BTCUSDT</code>", tele.ModeHTML)
+		}
+		
+		symbol := strings.ToUpper(args[0])
+		userID := c.Sender().ID
+		chat := c.Chat()
+		
+		log.Printf("📊 [AUTO-DATA] Processing symbol: %s for user: %d", symbol, userID)
+		
+		// Store mode
+		userMode.Store(userID, analysisMode)
+		
+		// Send initial status
+		modeName := getModeName(analysisMode)
+		timeframes := GetTimeframesForMode(tradingMode)
+		tfList := ""
+		for i, tf := range timeframes {
+			if i > 0 {
+				tfList += ", "
+			}
+			tfList += string(tf)
+		}
+		
+		log.Printf("⏰ [AUTO-DATA] Timeframes to fetch: %s", tfList)
+		
+		statusMsg, sendErr := b.Send(chat, fmt.Sprintf(`⏳ <b>FETCHING DATA...</b>
+
+📊 <b>Symbol:</b> %s
+⚙️ <b>Mode:</b> %s
+🕐 <b>Timeframes:</b> %s
+📈 <b>Candles:</b> 200 per timeframe
+
+<i>Mengambil data dari Binance...</i>`, symbol, modeName, tfList), tele.ModeHTML)
+		
+		if sendErr != nil {
+			log.Printf("❌ [AUTO-DATA] Failed to send status message: %v", sendErr)
+		} else {
+			log.Printf("✅ [AUTO-DATA] Status message sent")
+		}
+		
+		// Run in goroutine to not block
+		go func() {
+			log.Printf("🔄 [AUTO-DATA] Starting goroutine for %s", symbol)
+			
+			// Fetch multi-timeframe data (200 candles for context)
+			log.Printf("📈 [AUTO-DATA] Fetching candlestick data...")
+			summaries, err := FetchMultiTimeframeData(symbol, tradingMode, 200)
+			if err != nil {
+				log.Printf("❌ [AUTO-DATA] Error fetching data: %v", err)
+				if statusMsg != nil {
+					b.Delete(statusMsg)
+				}
+				b.Send(chat, fmt.Sprintf("❌ <b>Error fetching data:</b> %s\n\n<i>Pastikan symbol benar (contoh: BTCUSDT) dan koneksi internet stabil.</i>", err.Error()), tele.ModeHTML)
+				return
+			}
+			log.Printf("✅ [AUTO-DATA] Fetched data for %d timeframes", len(summaries))
+			
+			// Log summary for each timeframe
+			for _, s := range summaries {
+				log.Printf("📋 [AUTO-DATA] %s: Trend=%s, RSI=%.1f, Change=%.2f%%", 
+					GetTimeframeName(s.Interval), s.Trend, s.RSI, s.PriceChange)
+			}
+			
+			// Update status
+			if statusMsg != nil {
+				b.Edit(statusMsg, fmt.Sprintf(`✅ <b>DATA FETCHED!</b>
+
+📊 <b>Symbol:</b> %s
+📈 <b>Timeframes:</b> %d
+🤖 <b>Status:</b> Analyzing with AI...`, symbol, len(summaries)), tele.ModeHTML)
+			}
+			
+			// Format data for AI
+			dataContext := FormatDataForAI(symbol, summaries, tradingMode)
+			log.Printf("📝 [AUTO-DATA] Data formatted for AI (%d bytes)", len(dataContext))
+			
+			// Generate specialized prompt for data analysis
+			prompt := GenerateDataAnalysisPrompt(tradingMode, symbol, dataContext)
+			
+			// Build Gemini request (text only, no images!)
+			parts := []*genai.Part{genai.NewPartFromText(prompt)}
+			contents := []*genai.Content{{Parts: parts, Role: "user"}}
+			
+			// Tools (Google Search for sentiment)
+			tools := []*genai.Tool{{GoogleSearch: &genai.GoogleSearch{}}}
+			config := &genai.GenerateContentConfig{Tools: tools}
+			
+			// Call Gemini
+			log.Printf("🤖 [AUTO-DATA] Calling Gemini AI...")
+			resp, err := client.Models.GenerateContent(ctx, "gemini-flash-latest", contents, config)
+			
+			// Delete status message
+			if statusMsg != nil {
+				b.Delete(statusMsg)
+			}
+			
+			if err != nil {
+				log.Printf("❌ [AUTO-DATA] Gemini API Error: %v", err)
+				b.Send(chat, "⚠️ <b>Error analyzing</b> (Quota or API Issue). Try again later.", tele.ModeHTML)
+				return
+			}
+			
+			if resp == nil || len(resp.Candidates) == 0 {
+				log.Printf("❌ [AUTO-DATA] Empty response from Gemini")
+				b.Send(chat, "⚠️ No response from AI.", tele.ModeHTML)
+				return
+			}
+			
+			// Extract response text
+			responseText := ""
+			for _, part := range resp.Candidates[0].Content.Parts {
+				responseText += part.Text
+			}
+			
+			// Clean HTML
+			responseText = cleanHTML(responseText)
+			log.Printf("✅ [AUTO-DATA] Analysis received (%d chars)", len(responseText))
+			
+			// Parse levels from response
+			levels := parseLevelsFromResponse(responseText)
+			if levels != nil {
+				log.Printf("📊 [AUTO-DATA] Parsed levels: Entry=%.2f, SL=%.2f, TP1=%.2f, TP2=%.2f, TP3=%.2f",
+					levels.Entry, levels.SL, levels.TP1, levels.TP2, levels.TP3)
+				
+				// Get best timeframe for chart (1H for scalping, 4H for swing/intraday)
+				chartInterval := Interval1h
+				if tradingMode == TradingModeSwing {
+					chartInterval = Interval4h
+				}
+				
+				// Fetch candles for chart
+				chartCandles, err := FetchCandlesticks(symbol, chartInterval, 100)
+				if err == nil {
+					// Generate chart with levels
+					chartImg, err := GenerateChartWithLevels(chartCandles, symbol, chartInterval, levels)
+					if err == nil {
+						log.Printf("📊 [AUTO-DATA] Generated entry chart (%d bytes)", len(chartImg))
+						
+						// Send chart first
+						photo := &tele.Photo{
+							File:    tele.FromReader(bytes.NewReader(chartImg)),
+							Caption: fmt.Sprintf("📊 %s Entry Chart\n🔵 Entry: %.2f\n🔴 SL: %.2f\n🟢 TP1: %.2f", symbol, levels.Entry, levels.SL, levels.TP1),
+						}
+						_, err = b.Send(chat, photo)
+						if err != nil {
+							log.Printf("⚠️ [AUTO-DATA] Failed to send chart: %v", err)
+						} else {
+							log.Printf("✅ [AUTO-DATA] Entry chart sent!")
+						}
+					} else {
+						log.Printf("⚠️ [AUTO-DATA] Failed to generate chart: %v", err)
+					}
+				}
+			} else {
+				log.Printf("⚠️ [AUTO-DATA] Could not parse levels from response")
+			}
+			
+			// Send analysis result with inline buttons
+			msg, err := b.Send(chat, responseText, &tele.SendOptions{
+				ParseMode: tele.ModeHTML,
+				ReplyMarkup: &tele.ReplyMarkup{
+					InlineKeyboard: [][]tele.InlineButton{
+						{
+							{
+								Text: "📈 TradingView",
+								URL:  fmt.Sprintf("https://www.tradingview.com/chart/?symbol=BINANCE:%s", symbol),
+							},
+							{
+								Text: "📰 News",
+								URL:  fmt.Sprintf("https://www.google.com/search?q=%s+crypto+news", symbol),
+							},
+						},
+						{
+							{
+								Text:   "⚠️ Disclaimer",
+								Unique: "disclaimer_btn",
+							},
+						},
+					},
+				},
+			})
+			
+			if err != nil {
+				log.Printf("❌ [AUTO-DATA] Failed to send analysis: %v", err)
+			} else {
+				log.Printf("✅ [AUTO-DATA] Analysis sent (MsgID: %d)", msg.ID)
+			}
+		}()
+		
+		log.Printf("⏳ [AUTO-DATA] Goroutine started, returning immediately")
+		return nil
+	}
+	
+	// /autosc - Auto Scalping
+	b.Handle("/autosc", func(c tele.Context) error {
+		log.Printf("🔥 [HANDLER] /autosc triggered by user %d", c.Sender().ID)
+		return processAutoChart(c, TradingModeScalping, ModeAutoScalping)
+	})
+	
+	// /autosw - Auto Swing
+	b.Handle("/autosw", func(c tele.Context) error {
+		log.Printf("🔥 [HANDLER] /autosw triggered by user %d", c.Sender().ID)
+		return processAutoChart(c, TradingModeSwing, ModeAutoSwing)
+	})
+	
+	// /autoint - Auto Intraday
+	b.Handle("/autoint", func(c tele.Context) error {
+		log.Printf("🔥 [HANDLER] /autoint triggered by user %d", c.Sender().ID)
+		return processAutoChart(c, TradingModeIntraday, ModeAutoIntraday)
+	})
+
 
 	// === Helper: Interactive Callbacks ===
 	b.Handle(&tele.InlineButton{Unique: "disclaimer_btn"}, func(c tele.Context) error {
@@ -473,6 +729,7 @@ Selamat datang! Saya adalah asisten trading AI Anda.
 	
 	b.Handle(tele.OnPhoto, handlePhoto)
 
+	log.Println("📋 [STARTUP] Registered handlers: /analyst, /scalping, /autosc, /autosw, /autoint, /help, /start")
 	fmt.Println("🚀 Antigravity Bot (Multi-Mode) Started...")
 	b.Start()
 }
@@ -503,4 +760,39 @@ func cleanHTML(text string) string {
 	text = strings.ReplaceAll(text, " & ", " &amp; ")
 
 	return text
+}
+
+// parseLevelsFromResponse extracts Entry, SL, TP levels from AI response
+func parseLevelsFromResponse(text string) *TradeLevels {
+	levels := &TradeLevels{}
+	
+	// Regex patterns to extract price levels
+	// Looking for patterns like "ENTRY:   98500.00" or "+ ENTRY: 98500"
+	entryRe := regexp.MustCompile(`(?i)ENTRY[:\s]+([0-9]+\.?[0-9]*)`)
+	slRe := regexp.MustCompile(`(?i)(?:SL|STOPLOSS)[:\s]+([0-9]+\.?[0-9]*)`)
+	tp1Re := regexp.MustCompile(`(?i)TP\s*1[:\s]+([0-9]+\.?[0-9]*)`)
+	tp2Re := regexp.MustCompile(`(?i)TP\s*2[:\s]+([0-9]+\.?[0-9]*)`)
+	tp3Re := regexp.MustCompile(`(?i)TP\s*3[:\s]+([0-9]+\.?[0-9]*)`)
+	
+	if match := entryRe.FindStringSubmatch(text); len(match) > 1 {
+		levels.Entry, _ = strconv.ParseFloat(match[1], 64)
+	}
+	if match := slRe.FindStringSubmatch(text); len(match) > 1 {
+		levels.SL, _ = strconv.ParseFloat(match[1], 64)
+	}
+	if match := tp1Re.FindStringSubmatch(text); len(match) > 1 {
+		levels.TP1, _ = strconv.ParseFloat(match[1], 64)
+	}
+	if match := tp2Re.FindStringSubmatch(text); len(match) > 1 {
+		levels.TP2, _ = strconv.ParseFloat(match[1], 64)
+	}
+	if match := tp3Re.FindStringSubmatch(text); len(match) > 1 {
+		levels.TP3, _ = strconv.ParseFloat(match[1], 64)
+	}
+	
+	// Check if we got at least entry and SL
+	if levels.Entry > 0 && levels.SL > 0 {
+		return levels
+	}
+	return nil
 }

@@ -10,7 +10,7 @@ import (
 	"google.golang.org/genai"
 )
 
-func main() {
+func bukanMain() {
 	godotenv.Load()
 
 	ctx := context.Background()

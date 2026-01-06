@@ -3,6 +3,8 @@ module goliz
 go 1.25.5
 
 require (
+	github.com/joho/godotenv v1.5.1
+	golang.org/x/image v0.0.0-20190802002840-cff245a6509b
 	google.golang.org/genai v1.40.0
 	gopkg.in/telebot.v3 v3.3.8
 )
@@ -19,7 +21,6 @@ require (
 	github.com/googleapis/enterprise-certificate-proxy v0.3.7 // indirect
 	github.com/googleapis/gax-go/v2 v2.15.0 // indirect
 	github.com/gorilla/websocket v1.5.3 // indirect
-	github.com/joho/godotenv v1.5.1 // indirect
 	go.opentelemetry.io/auto/sdk v1.2.1 // indirect
 	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.61.0 // indirect
 	go.opentelemetry.io/otel v1.38.0 // indirect
