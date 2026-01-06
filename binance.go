@@ -9,6 +9,18 @@ import (
 	"time"
 )
 
+// Binance API base URLs
+const (
+	BinanceGlobalBaseURL = "https://api.binance.com"
+	BinanceUSBaseURL     = "https://api.binance.us"
+)
+
+// binanceBaseURLs is the list of Binance API endpoints to try (with fallback)
+var binanceBaseURLs = []string{
+	BinanceGlobalBaseURL,
+	BinanceUSBaseURL,
+}
+
 // Candlestick represents OHLCV data
 type Candlestick struct {
 	OpenTime  time.Time
@@ -101,7 +113,7 @@ func GetTimeframeName(interval BinanceInterval) string {
 	}
 }
 
-// FetchCandlesticks fetches OHLCV data from Binance API
+// FetchCandlesticks fetches OHLCV data from Binance API with fallback to Binance US
 // symbol: e.g., "BTCUSDT"
 // interval: e.g., "1h"
 // limit: number of candles (max 1000)
@@ -113,25 +125,43 @@ func FetchCandlesticks(symbol string, interval BinanceInterval, limit int) ([]Ca
 		limit = 200
 	}
 
-	url := fmt.Sprintf(
-		"https://api.binance.com/api/v3/klines?symbol=%s&interval=%s&limit=%d",
-		symbol, interval, limit,
-	)
+	var lastErr error
+	var body []byte
 
-	resp, err := http.Get(url)
-	if err != nil {
-		return nil, fmt.Errorf("failed to fetch from Binance: %w", err)
+	// Try each Binance endpoint (global first, then US as fallback)
+	for _, baseURL := range binanceBaseURLs {
+		url := fmt.Sprintf(
+			"%s/api/v3/klines?symbol=%s&interval=%s&limit=%d",
+			baseURL, symbol, interval, limit,
+		)
+
+		resp, err := http.Get(url)
+		if err != nil {
+			lastErr = fmt.Errorf("failed to fetch from %s: %w", baseURL, err)
+			continue
+		}
+
+		if resp.StatusCode != http.StatusOK {
+			respBody, _ := io.ReadAll(resp.Body)
+			resp.Body.Close()
+			lastErr = fmt.Errorf("binance API error from %s (status %d): %s", baseURL, resp.StatusCode, string(respBody))
+			continue
+		}
+
+		body, err = io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if err != nil {
+			lastErr = fmt.Errorf("failed to read response from %s: %w", baseURL, err)
+			continue
+		}
+
+		// Success! Break out of the loop
+		lastErr = nil
+		break
 	}
-	defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("binance API error (status %d): %s", resp.StatusCode, string(body))
-	}
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read response: %w", err)
+	if lastErr != nil {
+		return nil, fmt.Errorf("all Binance endpoints failed: %w", lastErr)
 	}
 
 	// Binance returns array of arrays
@@ -170,42 +200,62 @@ func FetchCandlesticks(symbol string, interval BinanceInterval, limit int) ([]Ca
 	return candles, nil
 }
 
-// ValidateSymbol checks if a symbol exists on Binance
+// ValidateSymbol checks if a symbol exists on Binance (with US fallback)
 func ValidateSymbol(symbol string) (bool, error) {
-	url := fmt.Sprintf("https://api.binance.com/api/v3/ticker/price?symbol=%s", symbol)
+	for _, baseURL := range binanceBaseURLs {
+		url := fmt.Sprintf("%s/api/v3/ticker/price?symbol=%s", baseURL, symbol)
 
-	resp, err := http.Get(url)
-	if err != nil {
-		return false, err
+		resp, err := http.Get(url)
+		if err != nil {
+			continue
+		}
+		resp.Body.Close()
+
+		if resp.StatusCode == http.StatusOK {
+			return true, nil
+		}
 	}
-	defer resp.Body.Close()
 
-	return resp.StatusCode == http.StatusOK, nil
+	return false, nil
 }
 
-// GetCurrentPrice fetches the current price of a symbol
+// GetCurrentPrice fetches the current price of a symbol (with US fallback)
 func GetCurrentPrice(symbol string) (float64, error) {
-	url := fmt.Sprintf("https://api.binance.com/api/v3/ticker/price?symbol=%s", symbol)
+	var lastErr error
 
-	resp, err := http.Get(url)
-	if err != nil {
-		return 0, err
+	for _, baseURL := range binanceBaseURLs {
+		url := fmt.Sprintf("%s/api/v3/ticker/price?symbol=%s", baseURL, symbol)
+
+		resp, err := http.Get(url)
+		if err != nil {
+			lastErr = err
+			continue
+		}
+
+		if resp.StatusCode != http.StatusOK {
+			resp.Body.Close()
+			lastErr = fmt.Errorf("symbol not found on %s", baseURL)
+			continue
+		}
+
+		var result struct {
+			Price string `json:"price"`
+		}
+
+		body, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+
+		if err := json.Unmarshal(body, &result); err != nil {
+			lastErr = err
+			continue
+		}
+
+		price, _ := strconv.ParseFloat(result.Price, 64)
+		return price, nil
 	}
-	defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusOK {
-		return 0, fmt.Errorf("symbol not found")
+	if lastErr != nil {
+		return 0, fmt.Errorf("all Binance endpoints failed: %w", lastErr)
 	}
-
-	var result struct {
-		Price string `json:"price"`
-	}
-
-	body, _ := io.ReadAll(resp.Body)
-	if err := json.Unmarshal(body, &result); err != nil {
-		return 0, err
-	}
-
-	price, _ := strconv.ParseFloat(result.Price, 64)
-	return price, nil
+	return 0, fmt.Errorf("symbol not found")
 }
