@@ -701,7 +701,7 @@ Commodities: XAUUSD (Gold), XAGUSD (Silver)
 			
 			// Fetch multi-timeframe data (200 candles for context)
 			log.Printf("📈 [FOREX-AUTO] Fetching candlestick data...")
-			summaries, err := FetchForexMultiTimeframeData(yahooSymbol, tradingMode, 200)
+			summaries, err := FetchForexMultiTimeframeData(yahooSymbol, tradingMode, 500)
 			if err != nil {
 				log.Printf("❌ [FOREX-AUTO] Error fetching data: %v", err)
 				if statusMsg != nil {
