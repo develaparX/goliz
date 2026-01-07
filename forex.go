@@ -100,18 +100,33 @@ func NormalizeForexSymbol(input string) (string, string, error) {
 func GetForexTimeframesForMode(mode TradingMode) []YahooInterval {
 	switch mode {
 	case TradingModeScalping:
-		// Scalping: fokus timeframe kecil (5m, 15m, 1H, 1D)
-		// Note: 4H not available on Yahoo, using 1H instead
-		return []YahooInterval{YahooInterval5m, YahooInterval15m, YahooInterval1h, YahooInterval1d}
+		// Scalping: Using all available timeframes for maximum context
+		return []YahooInterval{
+			YahooInterval1m, YahooInterval2m, YahooInterval5m, YahooInterval15m, YahooInterval30m,
+			YahooInterval1h, YahooInterval90m, YahooInterval1d, YahooInterval1wk,
+			YahooInterval1mo, YahooInterval3mo,
+		}
 	case TradingModeSwing:
-		// Swing: full top-down (15m, 1H, 1D, 1W)
-		return []YahooInterval{YahooInterval15m, YahooInterval1h, YahooInterval1d, YahooInterval1wk}
+		// Swing: Using all available timeframes for maximum context
+		return []YahooInterval{
+			YahooInterval1m, YahooInterval2m, YahooInterval5m, YahooInterval15m, YahooInterval30m,
+			YahooInterval1h, YahooInterval90m, YahooInterval1d, YahooInterval1wk,
+			YahooInterval1mo, YahooInterval3mo,
+		}
 	case TradingModeIntraday:
-		// Intraday: shorter timeframes (5m, 15m, 1H, 1D)
-		return []YahooInterval{YahooInterval5m, YahooInterval15m, YahooInterval1h, YahooInterval1d}
+		// Intraday: Using all available timeframes for maximum context
+		return []YahooInterval{
+			YahooInterval1m, YahooInterval2m, YahooInterval5m, YahooInterval15m, YahooInterval30m,
+			YahooInterval1h, YahooInterval90m, YahooInterval1d, YahooInterval1wk,
+			YahooInterval1mo, YahooInterval3mo,
+		}
 	default:
-		// Default: balanced (15m, 1H, 1D, 1W)
-		return []YahooInterval{YahooInterval15m, YahooInterval1h, YahooInterval1d, YahooInterval1wk}
+		// Default: Using all available timeframes for maximum context
+		return []YahooInterval{
+			YahooInterval1m, YahooInterval2m, YahooInterval5m, YahooInterval15m, YahooInterval30m,
+			YahooInterval1h, YahooInterval90m, YahooInterval1d, YahooInterval1wk,
+			YahooInterval1mo, YahooInterval3mo,
+		}
 	}
 }
 
@@ -140,20 +155,26 @@ func ConvertYahooToBinanceInterval(yi YahooInterval) BinanceInterval {
 	switch yi {
 	case YahooInterval1m:
 		return Interval1m
+	case YahooInterval2m:
+		return BinanceInterval("2m")
 	case YahooInterval5m:
 		return Interval5m
 	case YahooInterval15m:
 		return Interval15m
 	case YahooInterval30m:
 		return Interval30m
+	case YahooInterval90m:
+		return BinanceInterval("90m")
 	case YahooInterval1h:
 		return Interval1h
-	case YahooInterval4h:
-		return Interval4h
 	case YahooInterval1d:
 		return Interval1d
 	case YahooInterval1wk:
 		return Interval1w
+	case YahooInterval1mo:
+		return BinanceInterval("1M")
+	case YahooInterval3mo:
+		return BinanceInterval("3M")
 	default:
 		return Interval1h
 	}
@@ -245,11 +266,11 @@ LANGKAH 1: EXTERNAL DATA VALIDATION
 - Cari sentimen pasar forex untuk %s hari ini menggunakan Google Search.
 - Cek calendar ekonomi untuk news yang akan rilis.
 
-LANGKAH 2: MULTI-TIMEFRAME ANALYSIS
-- Analisa dari timeframe TERBESAR ke TERKECIL
-- Identifikasi: Trend utama di HTF (Daily/Weekly)
-- Cari entry presisi di LTF (1H/15m)
-- Pastikan confluence antara HTF dan LTF
+LANGKAH 2: MULTI-TIMEFRAME ANALYSIS (FULL SPECTRUM)
+- Lakukan analisa menyeluruh mulai dari MACRO (3M, 1M, 1W) untuk melihat Big Picture.
+- Identifikasi Trend Major & Key Levels di D1, 1H, 90m.
+- Cari struktur entry & momentum presisi di timeframes kecil (30m, 15m, 5m, 2m, 1m).
+- Validasi sinyal hanya jika ada CONFLUENCE di 3 timeframe berbeda (misal: 1M + 1H + 5m).
 
 LANGKAH 3: SMART MONEY ANALYSIS
 - Order Blocks (OB) di level psikologis (00, 50, 20, 80)
@@ -282,8 +303,8 @@ OUTPUT FORMAT (STRICT HTML):
 <blockquote>💡 <i>"[Quote insight singkat tentang setup ini]"</i></blockquote>
 
 <b>📊 MARKET STRUCTURE</b>
-HTF Trend (Daily/Weekly): <b>[BULLISH/BEARISH]</b>
-LTF Trend (1H/15m): <b>[BULLISH/BEARISH]</b>
+HTF Trend (3M/1M/1W/1D): <b>[BULLISH/BEARISH]</b>
+LTF Trend (1H/15m/1m): <b>[BULLISH/BEARISH]</b>
 Key Support: [level harga]
 Key Resistance: [level harga]
 Volatility: [Low/Med/High]

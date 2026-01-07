@@ -16,13 +16,16 @@ type YahooInterval string
 
 const (
 	YahooInterval1m  YahooInterval = "1m"
+	YahooInterval2m  YahooInterval = "2m"
 	YahooInterval5m  YahooInterval = "5m"
 	YahooInterval15m YahooInterval = "15m"
 	YahooInterval30m YahooInterval = "30m"
+	YahooInterval90m YahooInterval = "90m"
 	YahooInterval1h  YahooInterval = "1h"
-	YahooInterval4h  YahooInterval = "4h" // Note: Yahoo uses different approach for 4h
 	YahooInterval1d  YahooInterval = "1d"
 	YahooInterval1wk YahooInterval = "1wk"
+	YahooInterval1mo YahooInterval = "1mo"
+	YahooInterval3mo YahooInterval = "3mo"
 )
 
 // YahooRange represents the data range for Yahoo Finance
@@ -79,20 +82,26 @@ func GetRangeForInterval(interval YahooInterval) YahooRange {
 	switch interval {
 	case YahooInterval1m:
 		return YahooRange1d // 1m data only available for 1 day
+	case YahooInterval2m:
+		return YahooRange1d // 2m data for 1 day
 	case YahooInterval5m:
 		return YahooRange5d // 5m data for 5 days
 	case YahooInterval15m:
 		return YahooRange1mo // 15m data for 1 month
 	case YahooInterval30m:
 		return YahooRange1mo
+	case YahooInterval90m:
+		return YahooRange1mo // 90m data (max 60 days allowed, safe with 1mo)
 	case YahooInterval1h:
 		return YahooRange3mo // 1h data for 3 months
-	case YahooInterval4h:
-		return YahooRange6mo // Simulated via 1h
 	case YahooInterval1d:
 		return YahooRange1y // 1d data for 1 year
 	case YahooInterval1wk:
 		return YahooRange5y // 1wk data for 5 years
+	case YahooInterval1mo:
+		return YahooRangeMax // 1mo data max range
+	case YahooInterval3mo:
+		return YahooRangeMax // 3mo data max range
 	default:
 		return YahooRange1mo
 	}
@@ -214,20 +223,26 @@ func FetchYahooCandlesticks(symbol string, interval YahooInterval, limit int) ([
 		switch interval {
 		case YahooInterval1m:
 			closeTimeUnix += 60
+		case YahooInterval2m:
+			closeTimeUnix += 120
 		case YahooInterval5m:
 			closeTimeUnix += 300
 		case YahooInterval15m:
 			closeTimeUnix += 900
 		case YahooInterval30m:
 			closeTimeUnix += 1800
+		case YahooInterval90m:
+			closeTimeUnix += 5400
 		case YahooInterval1h:
 			closeTimeUnix += 3600
-		case YahooInterval4h:
-			closeTimeUnix += 14400
 		case YahooInterval1d:
 			closeTimeUnix += 86400
 		case YahooInterval1wk:
 			closeTimeUnix += 604800
+		case YahooInterval1mo:
+			closeTimeUnix += 2592000 // Approx 30 days
+		case YahooInterval3mo:
+			closeTimeUnix += 7776000 // Approx 90 days
 		}
 
 		candles = append(candles, Candlestick{
@@ -337,20 +352,26 @@ func GetYahooTimeframeName(interval YahooInterval) string {
 	switch interval {
 	case YahooInterval1m:
 		return "1 Minute"
+	case YahooInterval2m:
+		return "2 Minutes"
 	case YahooInterval5m:
 		return "5 Minutes"
 	case YahooInterval15m:
 		return "15 Minutes"
 	case YahooInterval30m:
 		return "30 Minutes"
+	case YahooInterval90m:
+		return "90 Minutes"
 	case YahooInterval1h:
 		return "1 Hour"
-	case YahooInterval4h:
-		return "4 Hours"
 	case YahooInterval1d:
 		return "1 Day"
 	case YahooInterval1wk:
 		return "1 Week"
+	case YahooInterval1mo:
+		return "1 Month"
+	case YahooInterval3mo:
+		return "3 Months"
 	default:
 		return string(interval)
 	}
