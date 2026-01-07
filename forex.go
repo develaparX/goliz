@@ -291,6 +291,8 @@ CRITICAL RULE:
 3. GUNAKAN Code Block "diff" untuk warna merah/hijau.
 4. BERIKAN HARGA SPESIFIK untuk Entry, SL, TP (dengan 5 desimal untuk forex).
 5. PERHATIKAN PIP VALUE dan SPREAD dalam analisa.
+6. RISK REWARD RATIO MINIMAL 1(SL) : 2(TP) ADALAH WAJIB. JIKA TIDAK TERPENUHI, ACTION = WAIT.
+7. JANGAN MEMAKSAKAN SIGNAL JIKA SETUP BELUM MATANG (ACTION = WAIT).
 --------------------------------------------------------
 
 OUTPUT FORMAT (STRICT HTML):

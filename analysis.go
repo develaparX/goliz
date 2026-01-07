@@ -279,6 +279,8 @@ CRITICAL RULE:
 2. Escape karakter < > & di dalam teks biasa.
 3. GUNAKAN Code Block "diff" untuk warna merah/hijau.
 4. BERIKAN HARGA SPESIFIK untuk Entry, SL, TP (bukan range).
+5. RISK REWARD RATIO MINIMAL 1(SL) : 2(TP) ADALAH WAJIB. JIKA TIDAK TERPENUHI, ACTION = WAIT.
+6. JANGAN MEMAKSAKAN SIGNAL JIKA SETUP BELUM MATANG (ACTION = WAIT).
 --------------------------------------------------------
 
 OUTPUT FORMAT (STRICT HTML):
